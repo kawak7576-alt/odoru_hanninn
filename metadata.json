@@ -1,0 +1,6 @@
+{
+  "name": "踊る犯人 - オンライン心理カードゲーム",
+  "description": "3〜8人で遊べる本格推理・心理戦カードゲーム「踊る犯人」。スマホ＆PC対応、リアルタイムオンライン対戦！",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
