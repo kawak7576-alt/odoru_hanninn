@@ -9,6 +9,8 @@ import { HistoryDashboard } from './components/HistoryDashboard';
 import { RulesModal } from './components/RulesModal';
 import { GameLogDrawer } from './components/GameLogDrawer';
 import { CardZoomModal } from './components/CardZoomModal';
+import { RoomSelectModal } from './components/RoomSelectModal';
+import { normalizeRoomId } from './utils/roomId';
 import { sounds } from './utils/sound';
 import {
   Volume2,
@@ -23,12 +25,34 @@ import {
   Wifi,
   WifiOff,
   Loader2,
+  Share2,
+  Check,
+  DoorOpen,
 } from 'lucide-react';
 
 export default function App() {
   const [gameState, setGameState] = useState<ClientGameState | null>(null);
   const [myPlayerId, setMyPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('探偵');
+
+  // Room state (2-digit: "01" - "99")
+  const getInitialRoom = () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const roomParam = params.get('room');
+      if (roomParam) return normalizeRoomId(roomParam);
+      const saved = localStorage.getItem('odoru_room_id');
+      if (saved) return normalizeRoomId(saved);
+    } catch {
+      // ignore
+    }
+    return '01';
+  };
+
+  const [roomId, setRoomId] = useState<string>(getInitialRoom);
+  const [showRoomSelect, setShowRoomSelect] = useState<boolean>(false);
+  const [copiedInvite, setCopiedInvite] = useState<boolean>(false);
+
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState<boolean>(false);
@@ -47,6 +71,20 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef<boolean>(true);
+
+  // Synchronize URL and localStorage with current 2-digit roomId
+  useEffect(() => {
+    try {
+      localStorage.setItem('odoru_room_id', roomId);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('room') !== roomId) {
+        url.searchParams.set('room', roomId);
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [roomId]);
 
   // Initialize player info
   useEffect(() => {
@@ -71,7 +109,7 @@ export default function App() {
     };
   }, []);
 
-  // Connect & maintain WebSocket with automatic reconnection
+  // Connect & maintain WebSocket with automatic reconnection and room binding
   const connectWebSocket = useCallback(() => {
     if (!isMountedRef.current) return;
 
@@ -86,13 +124,15 @@ export default function App() {
 
       const pId = localStorage.getItem('odoru_player_id') || myPlayerId;
       const pName = localStorage.getItem('odoru_player_name') || playerName || '探偵';
+      const curRoom = roomId || '01';
 
-      // Always join / reconnect to the universal shared room
+      // Join / reconnect with 2-digit room code
       ws.send(
         JSON.stringify({
           type: 'JOIN_GAME',
           playerId: pId,
           playerName: pName,
+          roomId: curRoom,
         })
       );
     };
@@ -100,8 +140,15 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'PONG') {
+          setIsConnected(true);
+          return;
+        }
         if (msg.type === 'ROOM_UPDATE') {
           setGameState(msg.state);
+          if (msg.state.roomId && msg.state.roomId !== roomId) {
+            setRoomId(msg.state.roomId);
+          }
         } else if (msg.type === 'ERROR') {
           setErrorToast(msg.message);
           setTimeout(() => setErrorToast(null), 3500);
@@ -132,7 +179,7 @@ export default function App() {
     };
 
     wsRef.current = ws;
-  }, [myPlayerId, playerName]);
+  }, [myPlayerId, playerName, roomId]);
 
   useEffect(() => {
     if (myPlayerId) {
@@ -145,6 +192,32 @@ export default function App() {
     };
   }, [myPlayerId, connectWebSocket]);
 
+  // Keep-alive heartbeat every 20s to prevent Render/Cloud proxies from dropping connection
+  useEffect(() => {
+    const pingInterval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'PING' }));
+      }
+    }, 20000);
+
+    const handleNetworkChange = () => {
+      if (document.visibilityState === 'visible' || navigator.onLine) {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          connectWebSocket();
+        }
+      }
+    };
+
+    window.addEventListener('online', handleNetworkChange);
+    document.addEventListener('visibilitychange', handleNetworkChange);
+
+    return () => {
+      clearInterval(pingInterval);
+      window.removeEventListener('online', handleNetworkChange);
+      document.removeEventListener('visibilitychange', handleNetworkChange);
+    };
+  }, [connectWebSocket]);
+
   // Audio trigger on turn changes
   useEffect(() => {
     if (gameState && myPlayerId) {
@@ -156,8 +229,53 @@ export default function App() {
 
   const sendWs = (payload: any) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(payload));
+      wsRef.current.send(JSON.stringify({ ...payload, roomId }));
     }
+  };
+
+  // Switch 2-digit room
+  const handleSwitchRoom = (targetRoomId: string) => {
+    const cleanId = normalizeRoomId(targetRoomId);
+    setRoomId(cleanId);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'SWITCH_ROOM',
+          playerId: myPlayerId,
+          targetRoomId: cleanId,
+          playerName,
+        })
+      );
+    }
+  };
+
+  // Copy 2-digit room invite link
+  const handleCopyInviteLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          setCopiedInvite(true);
+          setTimeout(() => setCopiedInvite(false), 2500);
+        })
+        .catch(() => {
+          fallbackCopy(url);
+        });
+    } else {
+      fallbackCopy(url);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 2500);
   };
 
   // Profile actions
@@ -334,8 +452,18 @@ export default function App() {
               <span className="text-amber-400">踊る犯人</span>
             </h1>
           </div>
+          {/* Room Number Badge & Quick Switch */}
+          <button
+            onClick={() => setShowRoomSelect(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/80 hover:bg-slate-950 border border-amber-400/50 text-xs font-black text-amber-300 transition cursor-pointer shadow-sm"
+            title="部屋番号を変更または確認"
+          >
+            <span className="text-stone-400 text-[10px]">部屋</span>
+            <span className="text-amber-400 font-mono text-sm tracking-wider font-black">#{roomId}</span>
+          </button>
+
           {/* Connection status badge */}
-          <div className="hidden sm:flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/5 text-[11px] font-bold">
+          <div className="hidden sm:flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/5 text-[11px] font-bold">
             {isConnected ? (
               <>
                 <Wifi className="w-3 h-3 text-emerald-400" />
@@ -351,6 +479,29 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Quick Invite Link Copy */}
+          <button
+            onClick={handleCopyInviteLink}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow ${
+              copiedInvite
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                : 'bg-white/5 hover:bg-white/15 text-stone-200 border-white/10'
+            }`}
+            title="友達をこの部屋に招待するURLをコピー"
+          >
+            {copiedInvite ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
+                <span className="text-[11px] font-black">コピー済</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline text-[11px]">招待</span>
+              </>
+            )}
+          </button>
+
           {/* ZIP Download Button */}
           <button
             onClick={handleDownloadZip}
@@ -418,6 +569,10 @@ export default function App() {
               playerName={playerName}
               setPlayerName={setPlayerName}
               onUpdateName={handleUpdateName}
+              roomId={roomId}
+              onOpenRoomSelect={() => setShowRoomSelect(true)}
+              onCopyInviteLink={handleCopyInviteLink}
+              copiedInvite={copiedInvite}
               onAddBot={handleAddBot}
               onRemoveBot={handleRemoveBot}
               onShufflePlayers={handleShufflePlayers}
@@ -564,6 +719,13 @@ export default function App() {
       )}
 
       {/* Modals & Drawers */}
+      {showRoomSelect && (
+        <RoomSelectModal
+          currentRoomId={roomId}
+          onSelectRoom={handleSwitchRoom}
+          onClose={() => setShowRoomSelect(false)}
+        />
+      )}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       {showDashboard && <HistoryDashboard onClose={() => setShowDashboard(false)} />}
       {gameState && (

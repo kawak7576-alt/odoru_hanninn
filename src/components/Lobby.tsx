@@ -10,9 +10,10 @@ import {
   Trash2,
   Shuffle,
   Download,
-  UserCheck,
   Edit2,
   Check,
+  DoorOpen,
+  Share2,
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -21,6 +22,10 @@ interface LobbyProps {
   playerName: string;
   setPlayerName: (name: string) => void;
   onUpdateName: (name: string) => void;
+  roomId: string;
+  onOpenRoomSelect: () => void;
+  onCopyInviteLink: () => void;
+  copiedInvite: boolean;
   onAddBot: () => void;
   onRemoveBot: (botId: string) => void;
   onShufflePlayers: () => void;
@@ -37,6 +42,10 @@ export const Lobby: React.FC<LobbyProps> = ({
   playerName,
   setPlayerName,
   onUpdateName,
+  roomId,
+  onOpenRoomSelect,
+  onCopyInviteLink,
+  copiedInvite,
   onAddBot,
   onRemoveBot,
   onShufflePlayers,
@@ -65,12 +74,57 @@ export const Lobby: React.FC<LobbyProps> = ({
   return (
     <div className="w-full max-w-xl mx-auto p-4 sm:p-6 bg-slate-900/95 border-2 border-amber-400/50 rounded-3xl shadow-2xl backdrop-blur-md">
       {/* Top Header */}
-      <div className="text-center mb-5">
+      <div className="text-center mb-4">
         <div className="inline-block p-3.5 rounded-3xl bg-amber-500/15 border border-amber-400/40 text-amber-400 mb-2 shadow-inner">
           <span className="text-3xl sm:text-4xl">🎭</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">踊る犯人</h1>
-        <p className="text-xs text-amber-300 font-bold mt-0.5">オンライン待機ロビー（全員共通ルーム）</p>
+        <p className="text-xs text-amber-300 font-bold mt-0.5">オンライン対戦ロビー</p>
+      </div>
+
+      {/* 2-Digit Room Indicator & Invite Bar */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-slate-950 to-amber-500/10 border-2 border-amber-400/50 mb-4 shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+          <div className="text-left">
+            <span className="text-[11px] font-bold text-stone-400 block">部屋番号（2桁）</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-amber-400 text-sm font-mono font-bold">#</span>
+              <span className="text-3xl font-black font-mono tracking-widest text-white drop-shadow">
+                {roomId}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onOpenRoomSelect}
+            className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-stone-200 hover:text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-white/10"
+            title="部屋番号を変更または作成"
+          >
+            <DoorOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span>部屋を変更</span>
+          </button>
+        </div>
+
+        <button
+          onClick={onCopyInviteLink}
+          className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-black text-xs shadow-md flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+            copiedInvite
+              ? 'bg-emerald-500 text-slate-950'
+              : 'bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 shadow-yellow-500/20'
+          }`}
+          title="友達をこの部屋に招待するURLをコピー"
+        >
+          {copiedInvite ? (
+            <>
+              <Check className="w-4 h-4 stroke-[3]" />
+              <span>URLをコピーしました！</span>
+            </>
+          ) : (
+            <>
+              <Share2 className="w-4 h-4" />
+              <span>招待URLをコピー</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Player Name Profile Bar */}
@@ -172,7 +226,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                       </span>
                       {!p.connected && !p.isBot && (
                         <span className="text-[10px] text-rose-400 bg-rose-950/80 px-1.5 py-0.2 rounded border border-rose-500/40">
-                          切断中
+                          一時切断（待機中）
                         </span>
                       )}
                     </div>
