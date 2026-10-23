@@ -59,30 +59,45 @@ interface InternalRoom {
   revealedDogCard?: { card: Card; targetName: string; isCulprit: boolean } | null;
 }
 
-const SHARED_ROOM_ID = 'SHARED';
+const rooms = new Map<string, InternalRoom>();
+const sockets = new Map<string, WebSocket>();
+const playerRooms = new Map<string, string>(); // playerId -> 2-digit roomId
+const matchHistory: MatchRecord[] = [];
 
-function createSharedRoom(): InternalRoom {
-  return {
-    id: SHARED_ROOM_ID,
-    hostPlayerId: '',
-    phase: 'lobby',
-    players: [],
-    deck: [],
-    discardPile: [],
-    incident: '',
-    round: 1,
-    turnSeatIndex: 0,
-    turnsCompletedInRound: 0,
-    accomplicePlayerIds: new Set<string>(),
-    logs: [],
-    result: null,
-    latestPlayedCard: null,
-  };
+function normalizeRoomId(rawId: string | number | null | undefined): string {
+  if (rawId === null || rawId === undefined) return '01';
+  const clean = String(rawId).trim().replace(/\D/g, '');
+  if (!clean) return '01';
+  const num = parseInt(clean, 10);
+  if (isNaN(num) || num <= 0) return '01';
+  const clamped = Math.min(Math.max(1, num), 99);
+  return clamped.toString().padStart(2, '0');
 }
 
-const sharedRoom: InternalRoom = createSharedRoom();
-const sockets = new Map<string, WebSocket>();
-const matchHistory: MatchRecord[] = [];
+function getOrCreateRoom(roomId: string): InternalRoom {
+  const normId = normalizeRoomId(roomId);
+  let room = rooms.get(normId);
+  if (!room) {
+    room = {
+      id: normId,
+      hostPlayerId: '',
+      phase: 'lobby',
+      players: [],
+      deck: [],
+      discardPile: [],
+      incident: '',
+      round: 1,
+      turnSeatIndex: 0,
+      turnsCompletedInRound: 0,
+      accomplicePlayerIds: new Set<string>(),
+      logs: [],
+      result: null,
+      latestPlayedCard: null,
+    };
+    rooms.set(normId, room);
+  }
+  return room;
+}
 
 const BOT_NAMES = [
   '明智警部🤖',
@@ -215,24 +230,32 @@ function getSanitizedStateForPlayer(room: InternalRoom, playerId: string): Clien
   };
 }
 
-function broadcastRoom() {
-  for (const player of sharedRoom.players) {
+function broadcastRoom(target: InternalRoom | string) {
+  const roomId = typeof target === 'string' ? normalizeRoomId(target) : target.id;
+  const room = typeof target === 'string' ? rooms.get(roomId) : target;
+  if (!room) return;
+
+  for (const player of room.players) {
     if (player.isBot) continue;
     const ws = sockets.get(player.id);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      const state = getSanitizedStateForPlayer(sharedRoom, player.id);
+      const state = getSanitizedStateForPlayer(room, player.id);
       ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
     }
   }
 
-  for (const [pId, ws] of sockets.entries()) {
-    if (!sharedRoom.players.some((p) => p.id === pId) && ws.readyState === WebSocket.OPEN) {
-      const state = getSanitizedStateForPlayer(sharedRoom, pId);
-      ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
+  // Also send to any spectators mapped to this roomId
+  for (const [pId, mappedRoomId] of playerRooms.entries()) {
+    if (mappedRoomId === room.id && !room.players.some((p) => p.id === pId)) {
+      const ws = sockets.get(pId);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const state = getSanitizedStateForPlayer(room, pId);
+        ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
+      }
     }
   }
 
-  handleBotTurn(sharedRoom);
+  handleBotTurn(room);
 }
 
 function sendToPlayer(playerId: string, msg: any) {
@@ -276,7 +299,7 @@ function advanceTurn(room: InternalRoom) {
   addLog(room, `${nextPlayer.name}のターンです。`, 'system');
 
   room.phase = 'playing';
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 function finishGame(room: InternalRoom, victoryType: VictoryType, victoryReason: string, winnerIds?: string[]) {
@@ -352,7 +375,7 @@ function finishGame(room: InternalRoom, victoryType: VictoryType, victoryReason:
 
   const record: MatchRecord = {
     id: generateId('MATCH_'),
-    roomId: 'SHARED',
+    roomId: room.id,
     timestamp: Date.now(),
     playerCount: room.players.length,
     incident: room.incident,
@@ -365,7 +388,7 @@ function finishGame(room: InternalRoom, victoryType: VictoryType, victoryReason:
   matchHistory.unshift(record);
   if (matchHistory.length > 50) matchHistory.pop();
 
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 function handleBotTurn(room: InternalRoom) {
@@ -611,7 +634,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         actionType: 'boy',
       };
       addLog(room, `${currentTurnPlayer.name}は少年の直感で犯人カードの行方を感知しました...`);
-      broadcastRoom();
+      broadcastRoom(room);
       break;
     }
 
@@ -621,7 +644,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         turnPlayerId: currentTurnPlayer.id,
         actionType: 'detective',
       };
-      broadcastRoom();
+      broadcastRoom(room);
       break;
 
     case 'trade':
@@ -630,7 +653,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         turnPlayerId: currentTurnPlayer.id,
         actionType: 'trade',
       };
-      broadcastRoom();
+      broadcastRoom(room);
       break;
 
     case 'witness':
@@ -639,7 +662,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         turnPlayerId: currentTurnPlayer.id,
         actionType: 'witness',
       };
-      broadcastRoom();
+      broadcastRoom(room);
       break;
 
     case 'dog':
@@ -648,7 +671,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         turnPlayerId: currentTurnPlayer.id,
         actionType: 'dog',
       };
-      broadcastRoom();
+      broadcastRoom(room);
       break;
 
     case 'rumor': {
@@ -659,7 +682,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         playerChoices: {},
       };
       addLog(room, `【うわさ】全員が右隣のプレイヤーの手札から1枚引きます！`, 'alert');
-      broadcastRoom();
+      broadcastRoom(room);
       break;
     }
 
@@ -671,7 +694,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         playerChoices: {},
       };
       addLog(room, `【情報操作】全員が自分の手札から1枚選んで左隣へ渡します！`, 'alert');
-      broadcastRoom();
+      broadcastRoom(room);
       break;
     }
 
@@ -726,7 +749,7 @@ function handleTradeOffer(room: InternalRoom, fromPlayerId: string, toPlayerId: 
   };
 
   addLog(room, `${fromPlayer.name}が${toPlayer.name}に取り引きを持ちかけました。`);
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 function executeTradeComplete(room: InternalRoom, toPlayerCardId: string) {
@@ -770,7 +793,7 @@ function handleWitnessAction(room: InternalRoom, turnPlayerId: string, targetPla
   };
 
   addLog(room, `${turnPlayer.name}が${targetPlayer.name}の手札を目撃しました！`);
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 function handleDogAction(room: InternalRoom, turnPlayerId: string, targetPlayerId: string, cardIndex: number) {
@@ -807,7 +830,7 @@ function handleDogAction(room: InternalRoom, turnPlayerId: string, targetPlayerI
       [turnPlayer.id]
     );
   } else {
-    broadcastRoom();
+    broadcastRoom(room);
     setTimeout(() => {
       advanceTurn(room);
     }, 2000);
@@ -818,7 +841,7 @@ function handleRumorPick(room: InternalRoom, playerId: string, chosenIndex: numb
   if (room.phase !== 'waiting_rumor' || !room.rumorState) return;
 
   room.rumorState.playerChoices[playerId] = chosenIndex;
-  broadcastRoom();
+  broadcastRoom(room);
 
   const allSubmitted = room.rumorState.participants.every(
     (pId) => room.rumorState!.playerChoices[pId] !== undefined
@@ -872,7 +895,7 @@ function handleInfoManipulationPick(room: InternalRoom, playerId: string, cardId
   if (room.phase !== 'waiting_info_manipulation' || !room.infoManipulationState) return;
 
   room.infoManipulationState.playerChoices[playerId] = cardId;
-  broadcastRoom();
+  broadcastRoom(room);
 
   const allSubmitted = room.infoManipulationState.participants.every(
     (pId) => room.infoManipulationState!.playerChoices[pId] !== undefined
@@ -941,13 +964,13 @@ function resetRoomToLobby(room: InternalRoom) {
   }
 
   addLog(room, 'ロビーに戻りました。席順変更や参加者の調整ができます。', 'system');
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 function startGame(room: InternalRoom) {
   if (room.players.length < 3 || room.players.length > 8) {
     addLog(room, `プレイ人数は3人〜8人である必要があります。（現在${room.players.length}人）`, 'alert');
-    broadcastRoom();
+    broadcastRoom(room);
     return;
   }
 
@@ -998,7 +1021,7 @@ function startGame(room: InternalRoom) {
     'alert'
   );
 
-  broadcastRoom();
+  broadcastRoom(room);
 }
 
 // ==================== HTTP & WebSocket App Setup ====================
@@ -1013,7 +1036,20 @@ app.get('/api/matches', (_req, res) => {
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', playersCount: sharedRoom.players.length, phase: sharedRoom.phase });
+  const totalPlayers = Array.from(rooms.values()).reduce((sum, r) => sum + r.players.length, 0);
+  res.json({ status: 'ok', activeRoomsCount: rooms.size, totalPlayersCount: totalPlayers });
+});
+
+app.get('/api/rooms', (_req, res) => {
+  const activeRooms = Array.from(rooms.values())
+    .map((r) => ({
+      id: r.id,
+      playerCount: r.players.length,
+      phase: r.phase,
+      round: r.round,
+    }))
+    .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+  res.json({ rooms: activeRooms });
 });
 
 // Endpoint to generate and download a pristine, complete ZIP file of the repository
@@ -1045,107 +1081,242 @@ sys.stdout.buffer.write(buf.getvalue())
   }
 });
 
-wss.on('connection', (ws: WebSocket) => {
-  let boundPlayerId: string | null = null;
+interface ExtWebSocket extends WebSocket {
+  isAlive: boolean;
+  boundPlayerId?: string;
+  boundRoomId?: string;
+}
+
+// Keep-alive heartbeat every 20 seconds to prevent proxies (e.g. Render, Cloud Run) from terminating idle connections
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((client) => {
+    const ws = client as ExtWebSocket;
+    if (ws.isAlive === false) {
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      // ignore
+    }
+  });
+}, 20000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
+wss.on('connection', (rawWs: WebSocket) => {
+  const ws = rawWs as ExtWebSocket;
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   ws.on('message', (messageRaw: string) => {
+    ws.isAlive = true;
     try {
       const data = JSON.parse(messageRaw.toString());
       const { type } = data;
 
-      switch (type) {
-        // Universal single room join / reconnect
-        case 'JOIN_GAME': {
-          const { playerId, playerName } = data;
-          const pId = playerId || generateId('P_');
-          boundPlayerId = pId;
-          sockets.set(pId, ws);
+      // Keepalive PING from client
+      if (type === 'PING') {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+        }
+        return;
+      }
 
-          // Check for existing player (reconnection!)
-          const existingPlayer = sharedRoom.players.find((p) => p.id === pId);
+      // Room resolution
+      const pId = data.playerId || ws.boundPlayerId;
+      const targetRoomId = normalizeRoomId(
+        data.roomId || (pId ? playerRooms.get(pId) : null) || ws.boundRoomId || '01'
+      );
+      const room = getOrCreateRoom(targetRoomId);
+
+      switch (type) {
+        case 'JOIN_GAME': {
+          const { playerId, playerName, roomId } = data;
+          const assignedPlayerId = playerId || generateId('P_');
+          const roomToJoin = normalizeRoomId(roomId || targetRoomId);
+          const currentRoom = getOrCreateRoom(roomToJoin);
+
+          ws.boundPlayerId = assignedPlayerId;
+          ws.boundRoomId = roomToJoin;
+          sockets.set(assignedPlayerId, ws);
+          playerRooms.set(assignedPlayerId, roomToJoin);
+
+          // Check if already in this room (reconnection!)
+          const existingPlayer = currentRoom.players.find((p) => p.id === assignedPlayerId);
           if (existingPlayer) {
             existingPlayer.connected = true;
             if (playerName && playerName.trim()) {
               existingPlayer.name = playerName.trim();
             }
-            if (!sharedRoom.hostPlayerId) {
-              sharedRoom.hostPlayerId = existingPlayer.id;
+            if (!currentRoom.hostPlayerId) {
+              currentRoom.hostPlayerId = existingPlayer.id;
             }
-            addLog(sharedRoom, `${existingPlayer.name}が再接続しました。`, 'system');
-            broadcastRoom();
+            addLog(currentRoom, `${existingPlayer.name}が再接続しました。`, 'system');
+            broadcastRoom(currentRoom);
             return;
           }
 
-          // If in lobby, join as a player
-          if (sharedRoom.phase === 'lobby') {
-            if (sharedRoom.players.length >= 8) {
-              ws.send(JSON.stringify({ type: 'ERROR', message: 'ルームが定員（最大8名）に達しています。' }));
+          // If room is in lobby, join as participant
+          if (currentRoom.phase === 'lobby') {
+            if (currentRoom.players.length >= 8) {
+              ws.send(
+                JSON.stringify({
+                  type: 'ERROR',
+                  message: `部屋【${roomToJoin}】は定員（最大8名）に達しています。`,
+                })
+              );
               return;
             }
 
-            const isFirst = sharedRoom.players.length === 0;
-            if (isFirst || !sharedRoom.hostPlayerId) {
-              sharedRoom.hostPlayerId = pId;
+            const isFirst = currentRoom.players.length === 0;
+            if (isFirst || !currentRoom.hostPlayerId) {
+              currentRoom.hostPlayerId = assignedPlayerId;
             }
 
             const newPlayer: PlayerPrivate = {
-              id: pId,
-              name: playerName || `探偵${sharedRoom.players.length + 1}`,
-              isHost: pId === sharedRoom.hostPlayerId,
+              id: assignedPlayerId,
+              name: playerName || `探偵${currentRoom.players.length + 1}`,
+              isHost: assignedPlayerId === currentRoom.hostPlayerId,
               isBot: false,
               connected: true,
-              seatIndex: sharedRoom.players.length,
+              seatIndex: currentRoom.players.length,
               hand: [],
               handCount: 0,
               playedCards: [],
               isAccomplice: false,
             };
 
-            sharedRoom.players.push(newPlayer);
-            addLog(sharedRoom, `${newPlayer.name}が参加しました。`, 'system');
-            broadcastRoom();
+            currentRoom.players.push(newPlayer);
+            addLog(currentRoom, `${newPlayer.name}が部屋【${currentRoom.id}】に参加しました。`, 'system');
+            broadcastRoom(currentRoom);
             return;
           }
 
-          // If game is in progress, send current game state to observe
-          const state = getSanitizedStateForPlayer(sharedRoom, pId);
+          // If game is in progress in this room, send view state
+          const state = getSanitizedStateForPlayer(currentRoom, assignedPlayerId);
+          ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
+          break;
+        }
+
+        case 'SWITCH_ROOM': {
+          const { playerId, targetRoomId, playerName } = data;
+          const assignedId = playerId || ws.boundPlayerId;
+          if (!assignedId) return;
+
+          const oldRoomId = playerRooms.get(assignedId);
+          const newRoomId = normalizeRoomId(targetRoomId);
+
+          if (oldRoomId && oldRoomId !== newRoomId) {
+            const oldRoom = rooms.get(oldRoomId);
+            if (oldRoom) {
+              if (oldRoom.phase === 'lobby') {
+                const idx = oldRoom.players.findIndex((p) => p.id === assignedId);
+                if (idx !== -1) {
+                  const removed = oldRoom.players.splice(idx, 1)[0];
+                  oldRoom.players.forEach((p, i) => { p.seatIndex = i; });
+                  if (oldRoom.hostPlayerId === assignedId) {
+                    oldRoom.hostPlayerId = oldRoom.players[0]?.id || '';
+                  }
+                  addLog(oldRoom, `${removed.name}が退出しました。`, 'system');
+                  broadcastRoom(oldRoom);
+                }
+              } else {
+                const player = oldRoom.players.find((p) => p.id === assignedId);
+                if (player) {
+                  player.connected = false;
+                  broadcastRoom(oldRoom);
+                }
+              }
+            }
+          }
+
+          playerRooms.set(assignedId, newRoomId);
+          ws.boundRoomId = newRoomId;
+
+          const newRoom = getOrCreateRoom(newRoomId);
+          const existing = newRoom.players.find((p) => p.id === assignedId);
+          if (existing) {
+            existing.connected = true;
+            if (playerName && playerName.trim()) {
+              existing.name = playerName.trim();
+            }
+            addLog(newRoom, `${existing.name}が再接続しました。`, 'system');
+            broadcastRoom(newRoom);
+            return;
+          }
+
+          if (newRoom.phase === 'lobby') {
+            if (newRoom.players.length < 8) {
+              const isFirst = newRoom.players.length === 0;
+              if (isFirst || !newRoom.hostPlayerId) {
+                newRoom.hostPlayerId = assignedId;
+              }
+              const newPlayer: PlayerPrivate = {
+                id: assignedId,
+                name: playerName || `探偵${newRoom.players.length + 1}`,
+                isHost: assignedId === newRoom.hostPlayerId,
+                isBot: false,
+                connected: true,
+                seatIndex: newRoom.players.length,
+                hand: [],
+                handCount: 0,
+                playedCards: [],
+                isAccomplice: false,
+              };
+              newRoom.players.push(newPlayer);
+              addLog(newRoom, `${newPlayer.name}が部屋【${newRoom.id}】に参加しました。`, 'system');
+              broadcastRoom(newRoom);
+              return;
+            } else {
+              ws.send(JSON.stringify({ type: 'ERROR', message: `部屋【${newRoomId}】は定員に達しています。` }));
+            }
+          }
+
+          const state = getSanitizedStateForPlayer(newRoom, assignedId);
           ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
           break;
         }
 
         case 'UPDATE_NAME': {
           const { playerId, playerName } = data;
-          const p = sharedRoom.players.find((x) => x.id === playerId);
+          const p = room.players.find((x) => x.id === playerId);
           if (p && playerName && playerName.trim()) {
             p.name = playerName.trim();
-            broadcastRoom();
+            broadcastRoom(room);
           }
           break;
         }
 
         case 'SHUFFLE_PLAYERS': {
-          if (sharedRoom.phase !== 'lobby') return;
-          for (let i = sharedRoom.players.length - 1; i > 0; i--) {
+          if (room.phase !== 'lobby') return;
+          for (let i = room.players.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [sharedRoom.players[i], sharedRoom.players[j]] = [sharedRoom.players[j], sharedRoom.players[i]];
+            [room.players[i], room.players[j]] = [room.players[j], room.players[i]];
           }
-          sharedRoom.players.forEach((p, idx) => {
+          room.players.forEach((p, idx) => {
             p.seatIndex = idx;
           });
-          addLog(sharedRoom, 'プレイヤーの席順がシャッフルされました！', 'system');
-          broadcastRoom();
+          addLog(room, 'プレイヤーの席順がシャッフルされました！', 'system');
+          broadcastRoom(room);
           break;
         }
 
         case 'ADD_BOT': {
-          if (sharedRoom.phase !== 'lobby') return;
-          if (sharedRoom.players.length >= 8) {
+          if (room.phase !== 'lobby') return;
+          if (room.players.length >= 8) {
             ws.send(JSON.stringify({ type: 'ERROR', message: '最大8人までです。' }));
             return;
           }
 
           const botId = generateId('BOT_');
-          const botName = BOT_NAMES[(sharedRoom.players.length - 1) % BOT_NAMES.length];
+          const botName = BOT_NAMES[(room.players.length - 1) % BOT_NAMES.length];
 
           const botPlayer: PlayerPrivate = {
             id: botId,
@@ -1153,107 +1324,107 @@ wss.on('connection', (ws: WebSocket) => {
             isHost: false,
             isBot: true,
             connected: true,
-            seatIndex: sharedRoom.players.length,
+            seatIndex: room.players.length,
             hand: [],
             handCount: 0,
             playedCards: [],
             isAccomplice: false,
           };
 
-          sharedRoom.players.push(botPlayer);
-          addLog(sharedRoom, `${botName}が参加しました。`, 'system');
-          broadcastRoom();
+          room.players.push(botPlayer);
+          addLog(room, `${botName}が参加しました。`, 'system');
+          broadcastRoom(room);
           break;
         }
 
         case 'REMOVE_BOT': {
           const { botId } = data;
-          if (sharedRoom.phase !== 'lobby') return;
+          if (room.phase !== 'lobby') return;
 
-          const idx = sharedRoom.players.findIndex((p) => p.id === botId && p.isBot);
+          const idx = room.players.findIndex((p) => p.id === botId && p.isBot);
           if (idx !== -1) {
-            const removed = sharedRoom.players.splice(idx, 1)[0];
-            sharedRoom.players.forEach((p, i) => {
+            const removed = room.players.splice(idx, 1)[0];
+            room.players.forEach((p, i) => {
               p.seatIndex = i;
             });
-            addLog(sharedRoom, `${removed.name}が退出しました。`, 'system');
-            broadcastRoom();
+            addLog(room, `${removed.name}が退出しました。`, 'system');
+            broadcastRoom(room);
           }
           break;
         }
 
         case 'START_GAME': {
-          startGame(sharedRoom);
+          startGame(room);
           break;
         }
 
         case 'PLAY_FIRST_DISCOVERER': {
           const { playerId, incident } = data;
-          handlePlayFirstDiscoverer(sharedRoom, playerId, incident);
+          handlePlayFirstDiscoverer(room, playerId, incident);
           break;
         }
 
         case 'PLAY_CARD': {
           const { playerId, cardId } = data;
-          handlePlayCard(sharedRoom, playerId, cardId);
+          handlePlayCard(room, playerId, cardId);
           break;
         }
 
         case 'ACTION_DETECTIVE': {
           const { playerId, targetPlayerId } = data;
-          handleDetectiveAccusation(sharedRoom, playerId, targetPlayerId);
+          handleDetectiveAccusation(room, playerId, targetPlayerId);
           break;
         }
 
         case 'ACTION_TRADE_OFFER': {
           const { playerId, targetPlayerId, cardId } = data;
-          handleTradeOffer(sharedRoom, playerId, targetPlayerId, cardId);
+          handleTradeOffer(room, playerId, targetPlayerId, cardId);
           break;
         }
 
         case 'ACTION_TRADE_ACCEPT': {
           const { cardId } = data;
-          executeTradeComplete(sharedRoom, cardId);
+          executeTradeComplete(room, cardId);
           break;
         }
 
         case 'ACTION_WITNESS': {
           const { playerId, targetPlayerId } = data;
-          handleWitnessAction(sharedRoom, playerId, targetPlayerId);
+          handleWitnessAction(room, playerId, targetPlayerId);
           break;
         }
 
         case 'ACTION_WITNESS_DONE': {
-          advanceTurn(sharedRoom);
+          advanceTurn(room);
           break;
         }
 
         case 'ACTION_DOG': {
           const { playerId, targetPlayerId, cardIndex } = data;
-          handleDogAction(sharedRoom, playerId, targetPlayerId, cardIndex);
+          handleDogAction(room, playerId, targetPlayerId, cardIndex);
           break;
         }
 
         case 'ACTION_BOY_DONE': {
-          advanceTurn(sharedRoom);
+          advanceTurn(room);
           break;
         }
 
         case 'ACTION_RUMOR_PICK': {
           const { playerId, cardIndex } = data;
-          handleRumorPick(sharedRoom, playerId, cardIndex);
+          handleRumorPick(room, playerId, cardIndex);
           break;
         }
 
         case 'ACTION_INFO_MANIPULATION_PICK': {
           const { playerId, cardId } = data;
-          handleInfoManipulationPick(sharedRoom, playerId, cardId);
+          handleInfoManipulationPick(room, playerId, cardId);
           break;
         }
 
         case 'RESET_ROOM':
         case 'RESTART_GAME': {
-          resetRoomToLobby(sharedRoom);
+          resetRoomToLobby(room);
           break;
         }
 
@@ -1266,12 +1437,18 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('close', () => {
-    if (boundPlayerId) {
-      const player = sharedRoom.players.find((p) => p.id === boundPlayerId);
-      if (player) {
-        player.connected = false;
-        addLog(sharedRoom, `${player.name}が一時切断中（再接続待機）`, 'system');
-        broadcastRoom();
+    if (ws.boundPlayerId) {
+      const assignedRoomId = playerRooms.get(ws.boundPlayerId) || ws.boundRoomId;
+      if (assignedRoomId) {
+        const room = rooms.get(assignedRoomId);
+        if (room) {
+          const player = room.players.find((p) => p.id === ws.boundPlayerId);
+          if (player) {
+            player.connected = false;
+            addLog(room, `${player.name}が一時切断中（再接続待機）`, 'system');
+            broadcastRoom(room);
+          }
+        }
       }
     }
   });
