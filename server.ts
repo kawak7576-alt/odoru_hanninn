@@ -7,6 +7,8 @@ import { execSync } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 import {
   Card,
+  CardMovementEvent,
+  CardMovementItem,
   CardType,
   ClientGameState,
   GameLogEntry,
@@ -29,6 +31,23 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+interface RawCardTransfer {
+  fromId: string;
+  fromName: string;
+  toId: string;
+  toName: string;
+  card: Card;
+  isPublic?: boolean;
+}
+
+interface RawMovementRecord {
+  id: string;
+  timestamp: number;
+  effect: 'trade' | 'rumor' | 'info_manipulation' | 'dog' | 'play';
+  effectName: string;
+  transfers: RawCardTransfer[];
+}
+
 interface InternalRoom {
   id: string;
   hostPlayerId: string;
@@ -44,6 +63,7 @@ interface InternalRoom {
   logs: GameLogEntry[];
   result: GameResult | null;
   latestPlayedCard: { card: Card; playerId: string; playerName: string } | null;
+  latestMovement?: RawMovementRecord | null;
 
   activeCardAction?: {
     cardType: CardType;
@@ -97,6 +117,38 @@ function getOrCreateRoom(roomId: string): InternalRoom {
     rooms.set(normId, room);
   }
   return room;
+}
+
+function syncRoomHost(room: InternalRoom) {
+  const currentHost = room.players.find((p) => p.id === room.hostPlayerId);
+  // In lobby, if host is missing or disconnected, transfer crown to first connected human player
+  if (!currentHost || (room.phase === 'lobby' && !currentHost.connected)) {
+    const firstConnectedHuman = room.players.find((p) => !p.isBot && p.connected);
+    if (firstConnectedHuman) {
+      room.hostPlayerId = firstConnectedHuman.id;
+    } else if (room.players.length > 0) {
+      room.hostPlayerId = room.players[0].id;
+    } else {
+      room.hostPlayerId = '';
+    }
+  }
+}
+
+function pruneDisconnectedLobbyPlayers(room: InternalRoom) {
+  if (room.phase !== 'lobby') return;
+  const beforeCount = room.players.length;
+  room.players = room.players.filter((p) => {
+    if (p.isBot) return true;
+    if (p.connected) return true;
+    const ws = sockets.get(p.id);
+    return !!(ws && ws.readyState === WebSocket.OPEN);
+  });
+  if (room.players.length !== beforeCount) {
+    room.players.forEach((p, i) => {
+      p.seatIndex = i;
+    });
+    syncRoomHost(room);
+  }
 }
 
 const BOT_NAMES = [
@@ -189,26 +241,91 @@ function getSanitizedStateForPlayer(room: InternalRoom, playerId: string): Clien
   }
 
   if (room.phase === 'waiting_rumor' && room.rumorState) {
-    const alivePlayers = room.players.filter((p) => p.hand.length > 0);
-    const myIdx = alivePlayers.findIndex((p) => p.id === playerId);
+    const N = room.players.length;
+    const myIdx = room.players.findIndex((p) => p.id === playerId);
     if (myIdx !== -1) {
-      const rightIdx = (myIdx - 1 + alivePlayers.length) % alivePlayers.length;
-      const rightNeighbor = alivePlayers[rightIdx];
+      const rightIdx = (myIdx - 1 + N) % N;
+      const rightNeighbor = room.players[rightIdx];
       secretInfo = {
         ...(secretInfo || {}),
         rumorWaitPrompt: {
           rightNeighborId: rightNeighbor.id,
           rightNeighborName: rightNeighbor.name,
           rightNeighborCardCount: rightNeighbor.hand.length,
+          canDraw: rightNeighbor.hand.length > 0,
         },
       };
     }
   }
 
   if (room.phase === 'waiting_info_manipulation' && room.infoManipulationState) {
+    const myPlayer = room.players.find((p) => p.id === playerId);
     secretInfo = {
       ...(secretInfo || {}),
-      infoManipulationPrompt: true,
+      infoManipulationPrompt: {
+        canGive: (myPlayer?.hand.length ?? 0) > 0,
+      },
+    };
+  }
+
+  let latestMovement: CardMovementEvent | null = null;
+  if (room.latestMovement) {
+    const lm = room.latestMovement;
+    let customSummary = '';
+    if (lm.effect === 'trade') {
+      const p1 = lm.transfers[0];
+      const p2 = lm.transfers[1];
+      if (p1 && p2) {
+        if (p1.fromId === playerId) {
+          customSummary = `【${p1.toName}】にカードを渡し、【${p1.toName}】から「${p2.card.name}」を受け取りました`;
+        } else if (p2.fromId === playerId) {
+          customSummary = `【${p2.toName}】にカードを渡し、【${p2.toName}】から「${p1.card.name}」を受け取りました`;
+        } else {
+          customSummary = `【${p1.fromName}】と【${p1.toName}】の間でカードが1枚移動しました`;
+        }
+      }
+    } else if (lm.effect === 'rumor') {
+      const myTransfer = lm.transfers.find((t) => t.toId === playerId);
+      if (myTransfer) {
+        customSummary = `右隣の【${myTransfer.fromName}】の手札から「${myTransfer.card.name}」を受け取りました`;
+      } else {
+        customSummary = `全員が右隣の手札からカードを1枚引きました`;
+      }
+    } else if (lm.effect === 'info_manipulation') {
+      const myGive = lm.transfers.find((t) => t.fromId === playerId);
+      const myReceive = lm.transfers.find((t) => t.toId === playerId);
+      if (myGive && myReceive) {
+        customSummary = `左隣の【${myGive.toName}】へ「${myGive.card.name}」を渡し、右隣の【${myReceive.fromName}】からカードを受け取りました`;
+      } else {
+        customSummary = `全員が左隣の手札へカードを1枚渡しました`;
+      }
+    } else if (lm.effect === 'dog') {
+      const dogTransfer = lm.transfers[0];
+      if (dogTransfer) {
+        customSummary = `いぬが【${dogTransfer.fromName}】の手札から「${dogTransfer.card.name}」を暴きました！`;
+      }
+    }
+
+    const movements: CardMovementItem[] = lm.transfers.map((t) => {
+      const isParticipant = t.fromId === playerId || t.toId === playerId;
+      const canSeeCard = !!t.isPublic || isParticipant;
+      return {
+        fromId: t.fromId,
+        fromName: t.fromId === playerId ? 'あなた' : t.fromName,
+        toId: t.toId,
+        toName: t.toId === playerId ? 'あなた' : t.toName,
+        cardName: canSeeCard ? t.card.name : undefined,
+        isSecret: !canSeeCard,
+      };
+    });
+
+    latestMovement = {
+      id: lm.id,
+      timestamp: lm.timestamp,
+      effect: lm.effect,
+      effectName: lm.effectName,
+      summary: customSummary || `${lm.effectName}によりカードが移動しました`,
+      movements,
     };
   }
 
@@ -227,6 +344,7 @@ function getSanitizedStateForPlayer(room: InternalRoom, playerId: string): Clien
     result: room.result,
     activeCardAction: room.activeCardAction,
     secretInfo,
+    latestMovement,
   };
 }
 
@@ -413,15 +531,15 @@ function handleBotTurn(room: InternalRoom) {
     for (const pId of room.rumorState.participants) {
       const p = room.players.find((x) => x.id === pId);
       if (p && p.isBot && room.rumorState.playerChoices[pId] === undefined) {
-        setTimeout(() => {
-          if (room.phase !== 'waiting_rumor' || !room.rumorState) return;
-          const alivePlayers = room.players.filter((x) => x.hand.length > 0);
-          const myIdx = alivePlayers.findIndex((x) => x.id === pId);
-          const rightIdx = (myIdx - 1 + alivePlayers.length) % alivePlayers.length;
-          const rightNeighbor = alivePlayers[rightIdx];
-          const chosenIndex = Math.floor(Math.random() * rightNeighbor.hand.length);
-          handleRumorPick(room, pId, chosenIndex);
-        }, 800 + Math.random() * 500);
+        const myIdx = room.players.findIndex((x) => x.id === pId);
+        const rightNeighbor = room.players[(myIdx - 1 + room.players.length) % room.players.length];
+        if (rightNeighbor && rightNeighbor.hand.length > 0) {
+          setTimeout(() => {
+            if (room.phase !== 'waiting_rumor' || !room.rumorState) return;
+            const chosenIndex = Math.floor(Math.random() * rightNeighbor.hand.length);
+            handleRumorPick(room, pId, chosenIndex);
+          }, 800 + Math.random() * 500);
+        }
       }
     }
     return;
@@ -433,11 +551,13 @@ function handleBotTurn(room: InternalRoom) {
       if (p && p.isBot && room.infoManipulationState.playerChoices[pId] === undefined) {
         setTimeout(() => {
           if (room.phase !== 'waiting_info_manipulation' || !room.infoManipulationState) return;
-          const nonCulprit = p.hand.filter((c) => c.type !== 'culprit');
-          const cardToGive = nonCulprit.length > 0
-            ? nonCulprit[Math.floor(Math.random() * nonCulprit.length)]
-            : p.hand[0];
-          handleInfoManipulationPick(room, pId, cardToGive.id);
+          if (p.hand.length > 0) {
+            const nonCulprit = p.hand.filter((c) => c.type !== 'culprit');
+            const cardToGive = nonCulprit.length > 0
+              ? nonCulprit[Math.floor(Math.random() * nonCulprit.length)]
+              : p.hand[0];
+            handleInfoManipulationPick(room, pId, cardToGive.id);
+          }
         }, 800 + Math.random() * 600);
       }
     }
@@ -647,7 +767,20 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
       broadcastRoom(room);
       break;
 
-    case 'trade':
+    case 'trade': {
+      if (currentTurnPlayer.hand.length === 0) {
+        addLog(room, `${currentTurnPlayer.name}の手札が0枚のため、取り引きは何も起きませんでした。`, 'system');
+        advanceTurn(room);
+        break;
+      }
+      const opponentsWithCards = room.players.filter(
+        (p) => p.id !== currentTurnPlayer.id && p.hand.length > 0
+      );
+      if (opponentsWithCards.length === 0) {
+        addLog(room, `相手プレイヤーの手札が0枚のため、取り引きは何も起きませんでした。`, 'system');
+        advanceTurn(room);
+        break;
+      }
       room.activeCardAction = {
         cardType: 'trade',
         turnPlayerId: currentTurnPlayer.id,
@@ -655,6 +788,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
       };
       broadcastRoom(room);
       break;
+    }
 
     case 'witness':
       room.activeCardAction = {
@@ -676,7 +810,22 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
 
     case 'rumor': {
       room.phase = 'waiting_rumor';
-      const participants = room.players.filter((p) => p.hand.length > 0).map((p) => p.id);
+      const N = room.players.length;
+      const participants: string[] = [];
+      for (let i = 0; i < N; i++) {
+        const p = room.players[i];
+        const rightNeighbor = room.players[(i - 1 + N) % N];
+        if (rightNeighbor.hand.length > 0) {
+          participants.push(p.id);
+        }
+      }
+
+      if (participants.length === 0) {
+        addLog(room, `【うわさ】引くことができる手札がないため、何も起きませんでした。`, 'system');
+        advanceTurn(room);
+        break;
+      }
+
       room.rumorState = {
         participants,
         playerChoices: {},
@@ -689,6 +838,13 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
     case 'info_manipulation': {
       room.phase = 'waiting_info_manipulation';
       const participants = room.players.filter((p) => p.hand.length > 0).map((p) => p.id);
+
+      if (participants.length === 0) {
+        addLog(room, `【情報操作】渡すことができる手札がないため、何も起きませんでした。`, 'system');
+        advanceTurn(room);
+        break;
+      }
+
       room.infoManipulationState = {
         participants,
         playerChoices: {},
@@ -736,6 +892,12 @@ function handleTradeOffer(room: InternalRoom, fromPlayerId: string, toPlayerId: 
   const toPlayer = room.players.find((p) => p.id === toPlayerId);
   if (!fromPlayer || !toPlayer) return;
 
+  if (fromPlayer.hand.length === 0 || toPlayer.hand.length === 0) {
+    addLog(room, `手札がないため、取り引きは何も起きませんでした。`, 'system');
+    advanceTurn(room);
+    return;
+  }
+
   const card = fromPlayer.hand.find((c) => c.id === cardId);
   if (!card) return;
 
@@ -776,7 +938,18 @@ function executeTradeComplete(room: InternalRoom, toPlayerCardId: string) {
   room.tradeState = null;
   room.phase = 'playing';
 
-  addLog(room, `${fromPlayer.name}と${toPlayer.name}の間で秘密裏に取り引きが成立しました。`);
+  room.latestMovement = {
+    id: generateId('MOV_'),
+    timestamp: Date.now(),
+    effect: 'trade',
+    effectName: '取り引き',
+    transfers: [
+      { fromId: fromPlayer.id, fromName: fromPlayer.name, toId: toPlayer.id, toName: toPlayer.name, card: offeredCard },
+      { fromId: toPlayer.id, fromName: toPlayer.name, toId: fromPlayer.id, toName: fromPlayer.name, card: receivedCard },
+    ],
+  };
+
+  addLog(room, `【取り引き】${fromPlayer.name}と${toPlayer.name}の間でカードが1枚ずつ秘密裏に交換されました。`, 'play');
   advanceTurn(room);
 }
 
@@ -814,6 +987,16 @@ function handleDogAction(room: InternalRoom, turnPlayerId: string, targetPlayerI
     card: chosenCard,
     targetName: targetPlayer.name,
     isCulprit,
+  };
+
+  room.latestMovement = {
+    id: generateId('MOV_'),
+    timestamp: Date.now(),
+    effect: 'dog',
+    effectName: 'いぬ',
+    transfers: [
+      { fromId: targetPlayer.id, fromName: targetPlayer.name, toId: turnPlayer.id, toName: turnPlayer.name, card: chosenCard, isPublic: true },
+    ],
   };
 
   addLog(
@@ -854,40 +1037,70 @@ function handleRumorPick(room: InternalRoom, playerId: string, chosenIndex: numb
 
 function executeSimultaneousRumor(room: InternalRoom) {
   if (!room.rumorState) return;
-  const alivePlayers = room.players.filter((p) => p.hand.length > 0);
-  const N = alivePlayers.length;
+  const N = room.players.length;
 
   const handSnapshots: Record<string, Card[]> = {};
-  for (const p of alivePlayers) {
+  for (const p of room.players) {
     handSnapshots[p.id] = [...p.hand];
   }
 
   const cardsDrawnBy: Record<string, Card> = {};
 
   for (let i = 0; i < N; i++) {
-    const p = alivePlayers[i];
-    const rightNeighbor = alivePlayers[(i - 1 + N) % N];
-    const chosenIdx = room.rumorState.playerChoices[p.id] ?? 0;
-    const targetSnapshot = handSnapshots[rightNeighbor.id];
-    const safeIdx = Math.min(Math.max(0, chosenIdx), targetSnapshot.length - 1);
-    cardsDrawnBy[p.id] = targetSnapshot[safeIdx];
+    const p = room.players[i];
+    const rightNeighbor = room.players[(i - 1 + N) % N];
+    if (rightNeighbor.hand.length > 0) {
+      const chosenIdx = room.rumorState.playerChoices[p.id] ?? 0;
+      const targetSnapshot = handSnapshots[rightNeighbor.id];
+      if (targetSnapshot && targetSnapshot.length > 0) {
+        const safeIdx = Math.min(Math.max(0, chosenIdx), targetSnapshot.length - 1);
+        cardsDrawnBy[p.id] = targetSnapshot[safeIdx];
+      }
+    }
   }
 
-  for (let i = 0; i < N; i++) {
-    const p = alivePlayers[i];
-    const cardToLose = cardsDrawnBy[alivePlayers[(i + 1) % N].id];
-    const cardToGain = cardsDrawnBy[p.id];
+  const transfers: RawCardTransfer[] = [];
 
-    const idxToRemove = p.hand.findIndex((c) => c.id === cardToLose.id);
-    if (idxToRemove !== -1) {
-      p.hand.splice(idxToRemove, 1);
+  // Remove cards that were drawn by left neighbors
+  for (let i = 0; i < N; i++) {
+    const p = room.players[i];
+    const leftNeighbor = room.players[(i + 1) % N];
+    const cardLost = cardsDrawnBy[leftNeighbor.id];
+    if (cardLost) {
+      const idxToRemove = p.hand.findIndex((c) => c.id === cardLost.id);
+      if (idxToRemove !== -1) {
+        p.hand.splice(idxToRemove, 1);
+      }
     }
-    p.hand.push(cardToGain);
+  }
+
+  // Add cards drawn by players from their right neighbors
+  for (let i = 0; i < N; i++) {
+    const p = room.players[i];
+    const rightNeighbor = room.players[(i - 1 + N) % N];
+    const cardGained = cardsDrawnBy[p.id];
+    if (cardGained) {
+      p.hand.push(cardGained);
+      transfers.push({
+        fromId: rightNeighbor.id,
+        fromName: rightNeighbor.name,
+        toId: p.id,
+        toName: p.name,
+        card: cardGained,
+      });
+    }
   }
 
   room.phase = 'playing';
   room.rumorState = null;
-  addLog(room, `全員が右隣のプレイヤーの手札からカードを受け取りました。`, 'alert');
+  room.latestMovement = {
+    id: generateId('MOV_'),
+    timestamp: Date.now(),
+    effect: 'rumor',
+    effectName: 'うわさ',
+    transfers,
+  };
+  addLog(room, `【うわさ】右隣のプレイヤーの手札からカードが移動しました。`, 'alert');
   advanceTurn(room);
 }
 
@@ -908,33 +1121,60 @@ function handleInfoManipulationPick(room: InternalRoom, playerId: string, cardId
 
 function executeSimultaneousInfoManipulation(room: InternalRoom) {
   if (!room.infoManipulationState) return;
-  const alivePlayers = room.players.filter((p) => p.hand.length > 0);
-  const N = alivePlayers.length;
+  const N = room.players.length;
 
   const passedCards: Record<string, Card> = {};
 
-  for (const p of alivePlayers) {
-    const chosenCardId = room.infoManipulationState.playerChoices[p.id];
-    const card = p.hand.find((c) => c.id === chosenCardId) || p.hand[0];
-    passedCards[p.id] = card;
+  for (const p of room.players) {
+    if (p.hand.length > 0) {
+      const chosenCardId = room.infoManipulationState.playerChoices[p.id];
+      const card = p.hand.find((c) => c.id === chosenCardId) || p.hand[0];
+      if (card) {
+        passedCards[p.id] = card;
+      }
+    }
   }
 
-  for (let i = 0; i < N; i++) {
-    const p = alivePlayers[i];
-    const cardToGive = passedCards[p.id];
-    const rightNeighbor = alivePlayers[(i - 1 + N) % N];
-    const cardToReceive = passedCards[rightNeighbor.id];
+  const transfers: RawCardTransfer[] = [];
 
-    const idxToRemove = p.hand.findIndex((c) => c.id === cardToGive.id);
-    if (idxToRemove !== -1) {
-      p.hand.splice(idxToRemove, 1);
+  // Remove passed cards from players who gave
+  for (const p of room.players) {
+    const cardToGive = passedCards[p.id];
+    if (cardToGive) {
+      const idxToRemove = p.hand.findIndex((c) => c.id === cardToGive.id);
+      if (idxToRemove !== -1) {
+        p.hand.splice(idxToRemove, 1);
+      }
     }
-    p.hand.push(cardToReceive);
+  }
+
+  // Add cards passed from right neighbors
+  for (let i = 0; i < N; i++) {
+    const p = room.players[i];
+    const rightNeighbor = room.players[(i - 1 + N) % N];
+    const cardToReceive = passedCards[rightNeighbor.id];
+    if (cardToReceive) {
+      p.hand.push(cardToReceive);
+      transfers.push({
+        fromId: rightNeighbor.id,
+        fromName: rightNeighbor.name,
+        toId: p.id,
+        toName: p.name,
+        card: cardToReceive,
+      });
+    }
   }
 
   room.phase = 'playing';
   room.infoManipulationState = null;
-  addLog(room, `全員が左隣のプレイヤーへカードを渡しました。`, 'alert');
+  room.latestMovement = {
+    id: generateId('MOV_'),
+    timestamp: Date.now(),
+    effect: 'info_manipulation',
+    effectName: '情報操作',
+    transfers,
+  };
+  addLog(room, `【情報操作】全員が左隣のプレイヤーへカードを渡しました。`, 'alert');
   advanceTurn(room);
 }
 
@@ -956,6 +1196,7 @@ function resetRoomToLobby(room: InternalRoom) {
   room.witnessInfo = null;
   room.boyNotifiedPlayerId = null;
   room.revealedDogCard = null;
+  room.latestMovement = null;
 
   for (const player of room.players) {
     player.hand = [];
@@ -963,13 +1204,21 @@ function resetRoomToLobby(room: InternalRoom) {
     player.isAccomplice = false;
   }
 
+  pruneDisconnectedLobbyPlayers(room);
+  syncRoomHost(room);
+
   addLog(room, 'ロビーに戻りました。席順変更や参加者の調整ができます。', 'system');
   broadcastRoom(room);
 }
 
 function startGame(room: InternalRoom) {
-  if (room.players.length < 3 || room.players.length > 8) {
-    addLog(room, `プレイ人数は3人〜8人である必要があります。（現在${room.players.length}人）`, 'alert');
+  // Prune any disconnected players in lobby before starting game
+  pruneDisconnectedLobbyPlayers(room);
+  syncRoomHost(room);
+
+  const activeConnectedPlayers = room.players.filter((p) => p.isBot || p.connected);
+  if (activeConnectedPlayers.length < 3 || activeConnectedPlayers.length > 8) {
+    addLog(room, `接続中のプレイ人数は3人〜8人である必要があります。（現在${activeConnectedPlayers.length}人）`, 'alert');
     broadcastRoom(room);
     return;
   }
@@ -978,6 +1227,7 @@ function startGame(room: InternalRoom) {
   room.deck = deck;
   room.discardPile = [];
   room.latestPlayedCard = null;
+  room.latestMovement = null;
   room.round = 1;
   room.turnsCompletedInRound = 0;
   room.accomplicePlayerIds.clear();
@@ -1148,6 +1398,11 @@ wss.on('connection', (rawWs: WebSocket) => {
           sockets.set(assignedPlayerId, ws);
           playerRooms.set(assignedPlayerId, roomToJoin);
 
+          // If room is in lobby, prune any stale ghost players whose sockets have closed
+          if (currentRoom.phase === 'lobby') {
+            pruneDisconnectedLobbyPlayers(currentRoom);
+          }
+
           // Check if already in this room (reconnection!)
           const existingPlayer = currentRoom.players.find((p) => p.id === assignedPlayerId);
           if (existingPlayer) {
@@ -1155,9 +1410,7 @@ wss.on('connection', (rawWs: WebSocket) => {
             if (playerName && playerName.trim()) {
               existingPlayer.name = playerName.trim();
             }
-            if (!currentRoom.hostPlayerId) {
-              currentRoom.hostPlayerId = existingPlayer.id;
-            }
+            syncRoomHost(currentRoom);
             addLog(currentRoom, `${existingPlayer.name}が再接続しました。`, 'system');
             broadcastRoom(currentRoom);
             return;
@@ -1194,6 +1447,7 @@ wss.on('connection', (rawWs: WebSocket) => {
             };
 
             currentRoom.players.push(newPlayer);
+            syncRoomHost(currentRoom);
             addLog(currentRoom, `${newPlayer.name}が部屋【${currentRoom.id}】に参加しました。`, 'system');
             broadcastRoom(currentRoom);
             return;
@@ -1221,9 +1475,7 @@ wss.on('connection', (rawWs: WebSocket) => {
                 if (idx !== -1) {
                   const removed = oldRoom.players.splice(idx, 1)[0];
                   oldRoom.players.forEach((p, i) => { p.seatIndex = i; });
-                  if (oldRoom.hostPlayerId === assignedId) {
-                    oldRoom.hostPlayerId = oldRoom.players[0]?.id || '';
-                  }
+                  syncRoomHost(oldRoom);
                   addLog(oldRoom, `${removed.name}が退出しました。`, 'system');
                   broadcastRoom(oldRoom);
                 }
@@ -1241,12 +1493,17 @@ wss.on('connection', (rawWs: WebSocket) => {
           ws.boundRoomId = newRoomId;
 
           const newRoom = getOrCreateRoom(newRoomId);
+          if (newRoom.phase === 'lobby') {
+            pruneDisconnectedLobbyPlayers(newRoom);
+          }
+
           const existing = newRoom.players.find((p) => p.id === assignedId);
           if (existing) {
             existing.connected = true;
             if (playerName && playerName.trim()) {
               existing.name = playerName.trim();
             }
+            syncRoomHost(newRoom);
             addLog(newRoom, `${existing.name}が再接続しました。`, 'system');
             broadcastRoom(newRoom);
             return;
@@ -1271,6 +1528,7 @@ wss.on('connection', (rawWs: WebSocket) => {
                 isAccomplice: false,
               };
               newRoom.players.push(newPlayer);
+              syncRoomHost(newRoom);
               addLog(newRoom, `${newPlayer.name}が部屋【${newRoom.id}】に参加しました。`, 'system');
               broadcastRoom(newRoom);
               return;
@@ -1281,6 +1539,31 @@ wss.on('connection', (rawWs: WebSocket) => {
 
           const state = getSanitizedStateForPlayer(newRoom, assignedId);
           ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
+          break;
+        }
+
+        case 'KICK_DISCONNECTED': {
+          const { targetPlayerId } = data;
+          if (room.phase !== 'lobby') return;
+          if (targetPlayerId === 'all') {
+            const beforeCount = room.players.length;
+            room.players = room.players.filter((p) => p.isBot || p.connected);
+            if (room.players.length !== beforeCount) {
+              room.players.forEach((p, i) => { p.seatIndex = i; });
+              syncRoomHost(room);
+              addLog(room, '切断中のプレイヤーをロビーから一括退出させました。', 'system');
+              broadcastRoom(room);
+            }
+            return;
+          }
+          const idx = room.players.findIndex((p) => p.id === targetPlayerId);
+          if (idx !== -1 && !room.players[idx].connected && !room.players[idx].isBot) {
+            const removed = room.players.splice(idx, 1)[0];
+            room.players.forEach((p, i) => { p.seatIndex = i; });
+            syncRoomHost(room);
+            addLog(room, `切断中の${removed.name}をロビーから整理しました。`, 'system');
+            broadcastRoom(room);
+          }
           break;
         }
 
@@ -1437,14 +1720,45 @@ wss.on('connection', (rawWs: WebSocket) => {
   });
 
   ws.on('close', () => {
-    if (ws.boundPlayerId) {
-      const assignedRoomId = playerRooms.get(ws.boundPlayerId) || ws.boundRoomId;
-      if (assignedRoomId) {
-        const room = rooms.get(assignedRoomId);
-        if (room) {
-          const player = room.players.find((p) => p.id === ws.boundPlayerId);
-          if (player) {
-            player.connected = false;
+    const boundId = ws.boundPlayerId;
+    if (!boundId) return;
+
+    // CRITICAL: Check if a newer socket has already replaced this one for the player!
+    if (sockets.get(boundId) !== ws) {
+      return;
+    }
+
+    sockets.delete(boundId);
+
+    const assignedRoomId = playerRooms.get(boundId) || ws.boundRoomId;
+    if (assignedRoomId) {
+      const room = rooms.get(assignedRoomId);
+      if (room) {
+        const player = room.players.find((p) => p.id === boundId);
+        if (player) {
+          player.connected = false;
+
+          if (room.phase === 'lobby') {
+            syncRoomHost(room);
+            broadcastRoom(room);
+
+            // 6-second grace timer for lobby: if not reconnected, auto-remove from lobby
+            setTimeout(() => {
+              if (room.phase === 'lobby') {
+                const cur = room.players.find((p) => p.id === boundId);
+                if (cur && !cur.connected) {
+                  const idx = room.players.findIndex((p) => p.id === boundId);
+                  if (idx !== -1) {
+                    const removed = room.players.splice(idx, 1)[0];
+                    room.players.forEach((p, i) => { p.seatIndex = i; });
+                    syncRoomHost(room);
+                    addLog(room, `${removed.name}がロビーから退出しました。`, 'system');
+                    broadcastRoom(room);
+                  }
+                }
+              }
+            }, 6000);
+          } else {
             addLog(room, `${player.name}が一時切断中（再接続待機）`, 'system');
             broadcastRoom(room);
           }
