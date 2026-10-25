@@ -8,8 +8,9 @@ import { GameOverModal } from './components/GameOverModal';
 import { HistoryDashboard } from './components/HistoryDashboard';
 import { RulesModal } from './components/RulesModal';
 import { GameLogDrawer } from './components/GameLogDrawer';
-import { CardZoomModal } from './components/CardZoomModal';
+import { CardDetailModal } from './components/CardDetailModal';
 import { RoomSelectModal } from './components/RoomSelectModal';
+import { CardMovementOverlay } from './components/CardMovementOverlay';
 import { normalizeRoomId } from './utils/roomId';
 import { sounds } from './utils/sound';
 import {
@@ -32,8 +33,27 @@ import {
 
 export default function App() {
   const [gameState, setGameState] = useState<ClientGameState | null>(null);
-  const [myPlayerId, setMyPlayerId] = useState<string>('');
-  const [playerName, setPlayerName] = useState<string>('探偵');
+
+  const [myPlayerId] = useState<string>(() => {
+    try {
+      let pId = localStorage.getItem('odoru_player_id');
+      if (!pId) {
+        pId = `P_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+        localStorage.setItem('odoru_player_id', pId);
+      }
+      return pId;
+    } catch {
+      return `P_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+    }
+  });
+
+  const [playerName, setPlayerName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('odoru_player_name') || '探偵';
+    } catch {
+      return '探偵';
+    }
+  });
 
   // Room state (2-digit: "01" - "99")
   const getInitialRoom = () => {
@@ -65,12 +85,27 @@ export default function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showIncidentMemo, setShowIncidentMemo] = useState(false);
   const [inspectedCard, setInspectedCard] = useState<Card | null>(null);
+  const [inspectedCardSource, setInspectedCardSource] = useState<string | undefined>(undefined);
   const [soundEnabled, setSoundEnabled] = useState(sounds.isEnabled());
+
+  const handleInspectCard = useCallback((card: Card, sourceLabel?: string) => {
+    sounds.selectCard();
+    setInspectedCard(card);
+    setInspectedCardSource(sourceLabel);
+  }, []);
 
   // WebSocket ref & reconnect timer
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef<boolean>(true);
+
+  // Refs for stable connection handling without thrashing sockets
+  const roomIdRef = useRef<string>(roomId);
+  roomIdRef.current = roomId;
+  const playerNameRef = useRef<string>(playerName);
+  playerNameRef.current = playerName;
+  const myPlayerIdRef = useRef<string>(myPlayerId);
+  myPlayerIdRef.current = myPlayerId;
 
   // Synchronize URL and localStorage with current 2-digit roomId
   useEffect(() => {
@@ -86,32 +121,12 @@ export default function App() {
     }
   }, [roomId]);
 
-  // Initialize player info
-  useEffect(() => {
-    isMountedRef.current = true;
-    let pId = localStorage.getItem('odoru_player_id');
-    if (!pId) {
-      pId = `P_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-      localStorage.setItem('odoru_player_id', pId);
-    }
-    setMyPlayerId(pId);
-
-    const savedName = localStorage.getItem('odoru_player_name');
-    if (savedName) {
-      setPlayerName(savedName);
-    }
-
-    return () => {
-      isMountedRef.current = false;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // Connect & maintain WebSocket with automatic reconnection and room binding
+  // Connect & maintain WebSocket with automatic reconnection
   const connectWebSocket = useCallback(() => {
     if (!isMountedRef.current) return;
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
@@ -122,9 +137,9 @@ export default function App() {
       setIsConnected(true);
       setIsReconnecting(false);
 
-      const pId = localStorage.getItem('odoru_player_id') || myPlayerId;
-      const pName = localStorage.getItem('odoru_player_name') || playerName || '探偵';
-      const curRoom = roomId || '01';
+      const pId = myPlayerIdRef.current;
+      const pName = playerNameRef.current;
+      const curRoom = roomIdRef.current;
 
       // Join / reconnect with 2-digit room code
       ws.send(
@@ -146,7 +161,7 @@ export default function App() {
         }
         if (msg.type === 'ROOM_UPDATE') {
           setGameState(msg.state);
-          if (msg.state.roomId && msg.state.roomId !== roomId) {
+          if (msg.state.roomId && msg.state.roomId !== roomIdRef.current) {
             setRoomId(msg.state.roomId);
           }
         } else if (msg.type === 'ERROR') {
@@ -175,22 +190,28 @@ export default function App() {
     };
 
     ws.onerror = () => {
-      ws.close();
+      try {
+        ws.close();
+      } catch {}
     };
 
     wsRef.current = ws;
-  }, [myPlayerId, playerName, roomId]);
+  }, []);
 
   useEffect(() => {
-    if (myPlayerId) {
-      connectWebSocket();
-    }
+    isMountedRef.current = true;
+    connectWebSocket();
+
     return () => {
+      isMountedRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [myPlayerId, connectWebSocket]);
+  }, [connectWebSocket]);
 
   // Keep-alive heartbeat every 20s to prevent Render/Cloud proxies from dropping connection
   useEffect(() => {
@@ -237,6 +258,7 @@ export default function App() {
   const handleSwitchRoom = (targetRoomId: string) => {
     const cleanId = normalizeRoomId(targetRoomId);
     setRoomId(cleanId);
+    roomIdRef.current = cleanId;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -281,11 +303,20 @@ export default function App() {
   // Profile actions
   const handleUpdateName = (name: string) => {
     setPlayerName(name);
+    playerNameRef.current = name;
     localStorage.setItem('odoru_player_name', name);
     sendWs({
       type: 'UPDATE_NAME',
       playerId: myPlayerId,
       playerName: name,
+    });
+  };
+
+  // Clean up disconnected ghost players in lobby
+  const handleKickDisconnected = (targetPlayerId: string) => {
+    sendWs({
+      type: 'KICK_DISCONNECTED',
+      targetPlayerId,
     });
   };
 
@@ -444,22 +475,21 @@ export default function App() {
       )}
 
       {/* Top Navbar */}
-      <header className="w-full border-b border-white/10 bg-slate-900/90 backdrop-blur-md px-3 sm:px-6 py-2.5 flex items-center justify-between sticky top-0 z-40 shadow-md">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl filter drop-shadow">🎭</span>
-          <div>
-            <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
-              <span className="text-amber-400">踊る犯人</span>
-            </h1>
-          </div>
+      <header className="w-full border-b border-white/10 bg-slate-900/90 backdrop-blur-md px-2.5 sm:px-5 py-1.5 flex items-center justify-between sticky top-0 z-40 shadow-sm">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <span className="text-xl filter drop-shadow">🎭</span>
+          <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center whitespace-nowrap">
+            <span className="text-amber-400">踊る犯人</span>
+          </h1>
+
           {/* Room Number Badge & Quick Switch */}
           <button
             onClick={() => setShowRoomSelect(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/80 hover:bg-slate-950 border border-amber-400/50 text-xs font-black text-amber-300 transition cursor-pointer shadow-sm"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/80 hover:bg-slate-950 border border-amber-400/50 text-xs font-black text-amber-300 transition cursor-pointer shadow-sm ml-0.5"
             title="部屋番号を変更または確認"
           >
             <span className="text-stone-400 text-[10px]">部屋</span>
-            <span className="text-amber-400 font-mono text-sm tracking-wider font-black">#{roomId}</span>
+            <span className="text-amber-400 font-mono text-xs tracking-wider font-black">#{roomId}</span>
           </button>
 
           {/* Connection status badge */}
@@ -478,11 +508,11 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           {/* Quick Invite Link Copy */}
           <button
             onClick={handleCopyInviteLink}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow ${
+            className={`px-2 py-1 rounded-lg border text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-sm ${
               copiedInvite
                 ? 'bg-emerald-500 text-slate-950 border-emerald-400'
                 : 'bg-white/5 hover:bg-white/15 text-stone-200 border-white/10'
@@ -492,7 +522,7 @@ export default function App() {
             {copiedInvite ? (
               <>
                 <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
-                <span className="text-[11px] font-black">コピー済</span>
+                <span className="text-[10px] font-black">コピー済</span>
               </>
             ) : (
               <>
@@ -502,58 +532,31 @@ export default function App() {
             )}
           </button>
 
-          {/* ZIP Download Button */}
-          <button
-            onClick={handleDownloadZip}
-            disabled={isDownloadingZip}
-            className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-400/40 transition flex items-center gap-1 text-xs font-black cursor-pointer shadow"
-            title="ソースコード一式をZIP形式でダウンロード"
-          >
-            {isDownloadingZip ? (
-              <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5 text-emerald-400" />
-            )}
-            <span className="hidden sm:inline">ZIP保存</span>
-          </button>
-
-          {/* Reset button requested by user */}
+          {/* Reset button: curved arrow icon only */}
           {gameState && (
             <button
               onClick={() => setShowResetConfirm(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-white border border-rose-400/40 transition flex items-center gap-1 text-xs font-black cursor-pointer shadow"
+              className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-white border border-rose-400/40 transition flex items-center justify-center cursor-pointer shadow-sm"
               title="ゲームをリセットしてロビーに戻る"
             >
               <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-              <span>リセット</span>
             </button>
           )}
 
           <button
-            onClick={handleToggleSound}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-stone-300 transition"
-            title="サウンド切替"
-          >
-            {soundEnabled ? (
-              <Volume2 className="w-4 h-4 text-amber-400" />
-            ) : (
-              <VolumeX className="w-4 h-4 text-stone-500" />
-            )}
-          </button>
-          <button
             onClick={() => setShowRules(true)}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-stone-300 transition flex items-center gap-1 text-xs font-bold"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-stone-300 transition flex items-center gap-1 text-xs font-bold"
             title="ルール説明"
           >
-            <HelpCircle className="w-4 h-4 text-amber-400" />
+            <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">ルール</span>
           </button>
           <button
             onClick={() => setShowDashboard(true)}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-stone-300 transition flex items-center gap-1 text-xs font-bold"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-stone-300 transition flex items-center gap-1 text-xs font-bold"
             title="対戦履歴"
           >
-            <History className="w-4 h-4 text-sky-400" />
+            <History className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden sm:inline">戦績</span>
           </button>
         </div>
@@ -581,62 +584,88 @@ export default function App() {
               onOpenDashboard={() => setShowDashboard(true)}
               onDownloadZip={handleDownloadZip}
               isDownloadingZip={isDownloadingZip}
+              onKickDisconnected={handleKickDisconnected}
             />
           </div>
         ) : (
-          <div className="w-full flex-1 flex flex-col justify-between relative">
-            {/* Incident Lamp Mark outside the table in the corner */}
-            <div className="w-full flex items-center justify-between px-2 mb-1">
-              <div className="relative">
-                <button
-                  onClick={() => setShowIncidentMemo(!showIncidentMemo)}
-                  className={`px-3 py-1.5 rounded-2xl shadow-xl flex items-center gap-1.5 transition-all transform active:scale-95 cursor-pointer border ${
-                    gameState.incident
-                      ? 'bg-amber-400 text-slate-950 border-yellow-200 animate-pulse hover:bg-yellow-300 shadow-yellow-500/30'
-                      : 'bg-slate-800 text-amber-300 border-white/10'
-                  }`}
-                  title="事件メモを開く"
-                >
-                  <Lightbulb className="w-4 h-4 fill-current" />
-                  <span className="text-xs font-black">事件メモ</span>
-                </button>
+          <div className="w-full flex-1 flex flex-col justify-between relative gap-1.5 sm:gap-2">
+            {/* 2. 現在の巡目やゲーム状況: （左から、事件メモ　第〇巡目　捨て札：〇枚） */}
+            <div className="w-full flex items-center justify-between px-2.5 sm:px-3 py-1 bg-slate-950/85 rounded-2xl border border-white/10 backdrop-blur-md shadow-sm relative z-30">
+              {/* 左：事件メモ */}
+              <div className="flex-1 flex items-center justify-start gap-1.5 min-w-0">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowIncidentMemo(!showIncidentMemo)}
+                    className={`px-2.5 py-1 rounded-xl shadow flex items-center gap-1 transition-all transform active:scale-95 cursor-pointer border text-xs font-black ${
+                      gameState.incident
+                        ? 'bg-amber-400 text-slate-950 border-yellow-200 hover:bg-yellow-300 shadow-amber-400/30'
+                        : 'bg-slate-800 text-amber-300 border-white/10'
+                    }`}
+                    title="事件メモを開く"
+                  >
+                    <Lightbulb className="w-3.5 h-3.5 fill-current" />
+                    <span>事件メモ</span>
+                  </button>
 
-                {/* Popover incident memo */}
-                {showIncidentMemo && (
-                  <div className="absolute top-11 left-0 w-64 sm:w-80 bg-slate-900 border-2 border-amber-400 rounded-2xl p-3.5 shadow-2xl backdrop-blur-md z-40 text-left animate-scale-up">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-white/10 mb-2">
-                      <div className="flex items-center gap-1.5 text-amber-300 font-black text-xs">
-                        <Lightbulb className="w-4 h-4 fill-amber-400" />
-                        <span>捜査メモ：事件の概要</span>
-                      </div>
-                      <button
+                  {/* Popover incident memo - displayed cleanly in front of the table */}
+                  {showIncidentMemo && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs"
                         onClick={() => setShowIncidentMemo(false)}
-                        className="p-1 rounded-lg text-stone-400 hover:text-white"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <p className="text-xs font-bold text-white leading-relaxed">
-                      {gameState.incident || 'まだ事件は発生していません（第一発見者が発表します）'}
-                    </p>
-                  </div>
+                      />
+                      <div className="absolute top-11 left-0 w-72 sm:w-84 bg-slate-900 border-2 border-amber-400 rounded-2xl p-3.5 shadow-2xl backdrop-blur-md z-50 text-left animate-scale-up">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-white/10 mb-2">
+                          <div className="flex items-center gap-1.5 text-amber-300 font-black text-xs">
+                            <Lightbulb className="w-4 h-4 fill-amber-400" />
+                            <span>捜査メモ：事件の概要</span>
+                          </div>
+                          <button
+                            onClick={() => setShowIncidentMemo(false)}
+                            className="p-1 rounded-lg text-stone-400 hover:text-white cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-xs sm:text-sm font-bold text-white leading-relaxed bg-black/50 p-2.5 rounded-xl border border-white/10">
+                          {gameState.incident || 'まだ事件は発生していません（第一発見者が発表します）'}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {gameState.incident && (
+                  <span className="text-[11px] font-bold text-amber-200 truncate max-w-[110px] sm:max-w-xs hidden xs:inline">
+                    「{gameState.incident}」
+                  </span>
                 )}
               </div>
 
-              <div className="text-xs font-mono font-bold text-stone-300 bg-black/40 px-2.5 py-1 rounded-full border border-white/10">
-                第{gameState.round}巡目
+              {/* 真ん中：第〇巡目 */}
+              <div className="shrink-0 px-2 flex justify-center">
+                <div className="text-xs font-mono font-black text-amber-300 bg-amber-950/80 px-3 py-0.5 rounded-full border border-amber-500/50 shadow-sm">
+                  第{gameState.round}巡目
+                </div>
+              </div>
+
+              {/* 右：捨て札：〇枚 */}
+              <div className="flex-1 flex items-center justify-end">
+                <div className="text-xs font-bold text-stone-200 bg-black/60 px-2.5 py-0.5 rounded-full border border-white/15 shadow-sm whitespace-nowrap">
+                  捨て札: <span className="font-mono text-amber-400 font-black">{gameState.discardPile.length}</span>枚
+                </div>
               </div>
             </div>
 
-            {/* The Poker-Style Green Felt Table */}
+            {/* 3. プレイヤーの配置と手札枚数: Casino Green Felt Table */}
             <GameTable
               gameState={gameState}
               myPlayerId={myPlayerId}
-              onInspectCard={(card) => setInspectedCard(card)}
+              onInspectCard={handleInspectCard}
             />
 
-            {/* Bottom Dock: User Hand & Interaction Controls */}
-            <div className="w-full mt-2">
+            {/* 4. 自分のターンと次の操作 & 自分の手札 */}
+            <div className="w-full">
               <PlayerHand
                 gameState={gameState}
                 myPlayerId={myPlayerId}
@@ -646,12 +675,16 @@ export default function App() {
                 onToggleLog={() => setShowLogDrawer(true)}
                 soundEnabled={soundEnabled}
                 onToggleSound={handleToggleSound}
-                onInspectCard={(card) => setInspectedCard(card)}
               />
             </div>
           </div>
         )}
       </main>
+
+      {/* 4. カード移動の演出: Non-blocking card movement overlay banner */}
+      {gameState?.latestMovement && (
+        <CardMovementOverlay movement={gameState.latestMovement} />
+      )}
 
       {/* Interactive Action Modals */}
       {gameState && (
@@ -668,7 +701,7 @@ export default function App() {
           onBoyDone={handleBoyDone}
           onRumorPick={handleRumorPick}
           onInfoManipulationPick={handleInfoManipulationPick}
-          onInspectCard={(card) => setInspectedCard(card)}
+          onInspectCard={(card) => handleInspectCard(card, 'カード詳細')}
         />
       )}
 
@@ -678,15 +711,20 @@ export default function App() {
           result={gameState.result}
           isHost={isHost}
           onRestart={handleRestartGame}
-          onInspectCard={(card) => setInspectedCard(card)}
+          onInspectCard={(card) => handleInspectCard(card, '決着カード')}
         />
       )}
 
-      {/* Global Card Zoom Inspection Modal */}
+      {/* Card Detail Modal (Exact same detail screen as hand cards when tapping field/played cards) */}
       {inspectedCard && (
-        <CardZoomModal
+        <CardDetailModal
           card={inspectedCard}
-          onClose={() => setInspectedCard(null)}
+          isFieldCard={true}
+          fieldSourceLabel={inspectedCardSource || '場に出されたカード'}
+          onClose={() => {
+            setInspectedCard(null);
+            setInspectedCardSource(undefined);
+          }}
         />
       )}
 
@@ -726,7 +764,13 @@ export default function App() {
           onClose={() => setShowRoomSelect(false)}
         />
       )}
-      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {showRules && (
+        <RulesModal
+          soundEnabled={soundEnabled}
+          onToggleSound={handleToggleSound}
+          onClose={() => setShowRules(false)}
+        />
+      )}
       {showDashboard && <HistoryDashboard onClose={() => setShowDashboard(false)} />}
       {gameState && (
         <GameLogDrawer

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card } from '../types/game';
-import { CARD_DEFINITIONS } from '../game/cardData';
+import { CARD_DEFINITIONS, getCardClassification } from '../game/cardData';
 import { X, Sparkles, AlertCircle } from 'lucide-react';
 
 interface CardZoomModalProps {
@@ -104,6 +104,18 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({ card, onClose }) =
   };
 
   const style = getCardStyle();
+  const classification = getCardClassification(card.type);
+
+  const getClassificationBadgeStyle = () => {
+    switch (classification) {
+      case 'アクション':
+        return 'bg-sky-950 text-sky-200 border-sky-400';
+      case 'パッシブ':
+        return 'bg-emerald-950 text-emerald-200 border-emerald-400';
+      case 'スペシャル':
+        return 'bg-amber-950 text-amber-200 border-amber-400';
+    }
+  };
 
   return (
     <div
@@ -112,7 +124,7 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({ card, onClose }) =
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative max-w-sm w-full bg-slate-900 border-2 border-white/20 rounded-3xl p-5 shadow-2xl flex flex-col items-center animate-scale-up"
+        className="relative max-w-sm w-full bg-slate-900 border-2 border-white/20 rounded-3xl p-4 shadow-2xl flex flex-col items-center animate-scale-up"
       >
         {/* Close button */}
         <button
@@ -126,22 +138,15 @@ export const CardZoomModal: React.FC<CardZoomModalProps> = ({ card, onClose }) =
         <div
           className={`w-full rounded-2xl p-4 bg-gradient-to-b ${style.bg} border-4 ${style.border} shadow-2xl text-white flex flex-col justify-between`}
         >
-          {/* Card Top */}
-          <div className="flex items-center justify-between border-b border-white/20 pb-2">
+          {/* Card Top: Name on left, classification below it, icon on right */}
+          <div className="flex items-start justify-between border-b border-white/20 pb-2">
             <div>
-              <span className="text-[11px] font-black tracking-wider uppercase opacity-90 block">
-                {style.typeLabel}
-              </span>
               <h2 className="text-2xl font-black drop-shadow tracking-tight">{card.name}</h2>
+              <span className={`mt-1 inline-block px-2 py-0.5 rounded text-[10px] font-black border uppercase tracking-wider ${getClassificationBadgeStyle()}`}>
+                {classification}
+              </span>
             </div>
             <span className="text-4xl filter drop-shadow">{card.icon}</span>
-          </div>
-
-          {/* Center Graphic */}
-          <div className="my-5 flex items-center justify-center">
-            <div className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/40 flex items-center justify-center text-5xl shadow-inner">
-              {card.icon}
-            </div>
           </div>
 
           {/* Big Readable Effect Box */}

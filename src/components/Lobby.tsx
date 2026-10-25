@@ -34,6 +34,7 @@ interface LobbyProps {
   onOpenDashboard: () => void;
   onDownloadZip: () => void;
   isDownloadingZip?: boolean;
+  onKickDisconnected?: (targetPlayerId: string) => void;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -54,6 +55,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onOpenDashboard,
   onDownloadZip,
   isDownloadingZip = false,
+  onKickDisconnected,
 }) => {
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(playerName);
@@ -61,7 +63,9 @@ export const Lobby: React.FC<LobbyProps> = ({
   const players = gameState?.players || [];
   const myPlayer = players.find((p) => p.id === myPlayerId);
   const isHost = myPlayer?.isHost ?? false;
-  const canStart = players.length >= 3 && players.length <= 8;
+  const connectedPlayers = players.filter((p) => p.isBot || p.connected);
+  const disconnectedCount = players.filter((p) => !p.connected && !p.isBot).length;
+  const canStart = connectedPlayers.length >= 3 && connectedPlayers.length <= 8;
 
   const handleSaveName = () => {
     if (tempName.trim()) {
@@ -179,6 +183,16 @@ export const Lobby: React.FC<LobbyProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {disconnectedCount > 0 && onKickDisconnected && (
+              <button
+                onClick={() => onKickDisconnected('all')}
+                className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-lg text-rose-300 text-[11px] font-bold flex items-center gap-1 shadow transition cursor-pointer"
+                title="切断されたプレイヤーを一括でロビーから外す"
+              >
+                <Trash2 className="w-3 h-3 text-rose-400" />
+                <span>切断者を整理 ({disconnectedCount}名)</span>
+              </button>
+            )}
             {isHost && players.length >= 2 && (
               <button
                 onClick={onShufflePlayers}
@@ -248,6 +262,16 @@ export const Lobby: React.FC<LobbyProps> = ({
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
+                    {!p.connected && !p.isBot && onKickDisconnected && (
+                      <button
+                        onClick={() => onKickDisconnected(p.id)}
+                        className="px-2 py-0.5 rounded text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        title="切断されたプレイヤーをロビーから整理する"
+                      >
+                        <Trash2 className="w-3 h-3 text-rose-400" />
+                        <span>退出</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -285,7 +309,9 @@ export const Lobby: React.FC<LobbyProps> = ({
             <span>
               {canStart
                 ? 'ゲームを開始する！'
-                : `あと${Math.max(0, 3 - players.length)}人必要です（3〜8人対戦）`}
+                : disconnectedCount > 0 && connectedPlayers.length < 3
+                ? `あと${Math.max(0, 3 - connectedPlayers.length)}人必要です（切断中のプレイヤーがいます）`
+                : `あと${Math.max(0, 3 - connectedPlayers.length)}人必要です（3〜8人対戦）`}
             </span>
           </button>
         ) : (

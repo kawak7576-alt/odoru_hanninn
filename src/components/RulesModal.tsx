@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { CARD_DEFINITIONS, CardMeta } from '../game/cardData';
 import { CardType } from '../types/game';
-import { BookOpen, X, Shield, Search, Sparkles } from 'lucide-react';
+import { BookOpen, X, Shield, Search, Sparkles, Volume2, VolumeX } from 'lucide-react';
 
 interface RulesModalProps {
   onClose: () => void;
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
 }
 
-export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
+export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = true, onToggleSound }) => {
   const [activeTab, setActiveTab] = useState<'cards' | 'rules'>('cards');
 
   return (
@@ -15,12 +17,37 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
       <div className="bg-slate-900 border border-amber-500/50 rounded-3xl max-w-3xl w-full p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
               <BookOpen className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-white">ルールブック＆全カード図鑑</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black text-white">ルールブック＆全カード図鑑</h2>
+                {onToggleSound && (
+                  <button
+                    onClick={onToggleSound}
+                    className={`px-2 py-0.5 rounded-lg border text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-sm ${
+                      soundEnabled
+                        ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 hover:bg-amber-400/30'
+                        : 'bg-white/5 text-stone-400 border-white/10 hover:bg-white/10'
+                    }`}
+                    title="サウンド切替"
+                  >
+                    {soundEnabled ? (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-[11px] font-bold">音声 ON</span>
+                      </>
+                    ) : (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-stone-400" />
+                        <span className="text-[11px] font-bold">音声 OFF</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
               <p className="text-[11px] text-stone-400">第三版ルール準拠・全32枚のカード効果</p>
             </div>
           </div>
@@ -87,6 +114,89 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
                   各プレイヤーに4枚ずつ手札を配り、手札から1枚ずつカードを出していきます。
                   誰が「犯人」を持っているかを暴くか、あるいは犯人となって逃げ切る心理戦ゲームです。
                 </p>
+              </div>
+
+              {/* プレイ人数とカード構成表 */}
+              <div>
+                <h3 className="font-black text-amber-400 text-sm mb-1 flex items-center gap-1.5">
+                  <span>👥</span>
+                  <span>プレイ人数と使用カード枚数（3〜8人）</span>
+                </h3>
+                <p className="text-[11px] text-stone-300 mb-2">
+                  人数に応じてデッキ総数（1人4枚 × 人数）と必須カードの枚数が決まります。
+                </p>
+
+                <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/40 mb-2.5">
+                  <table className="w-full text-left border-collapse text-[11px]">
+                    <thead>
+                      <tr className="bg-slate-900 border-b border-white/10 text-stone-300">
+                        <th className="py-1.5 px-2.5 font-black text-amber-300">人数</th>
+                        <th className="py-1.5 px-2 font-black text-white">デッキ総数</th>
+                        <th className="py-1.5 px-2 font-black text-amber-200">必ず入る必須カード</th>
+                        <th className="py-1.5 px-2 font-black text-stone-400">ランダム追加</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 font-medium">
+                      <tr className="hover:bg-white/5">
+                        <td className="py-1.5 px-2.5 font-bold text-amber-400">3人</td>
+                        <td className="py-1.5 px-2 font-mono font-bold text-white">12枚</td>
+                        <td className="py-1.5 px-2 text-stone-200 leading-tight">
+                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 1
+                        </td>
+                        <td className="py-1.5 px-2 text-stone-400">他から8枚</td>
+                      </tr>
+                      <tr className="hover:bg-white/5">
+                        <td className="py-1.5 px-2.5 font-bold text-amber-400">4人</td>
+                        <td className="py-1.5 px-2 font-mono font-bold text-white">16枚</td>
+                        <td className="py-1.5 px-2 text-stone-200 leading-tight">
+                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 1, たくらみ 1
+                        </td>
+                        <td className="py-1.5 px-2 text-stone-400">他から11枚</td>
+                      </tr>
+                      <tr className="hover:bg-white/5">
+                        <td className="py-1.5 px-2.5 font-bold text-amber-400">5人</td>
+                        <td className="py-1.5 px-2 font-mono font-bold text-white">20枚</td>
+                        <td className="py-1.5 px-2 text-stone-200 leading-tight">
+                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 2, たくらみ 1
+                        </td>
+                        <td className="py-1.5 px-2 text-stone-400">他から14枚</td>
+                      </tr>
+                      <tr className="hover:bg-white/5">
+                        <td className="py-1.5 px-2.5 font-bold text-amber-400">6人</td>
+                        <td className="py-1.5 px-2 font-mono font-bold text-white">24枚</td>
+                        <td className="py-1.5 px-2 text-stone-200 leading-tight">
+                          第一発見者 1, 犯人 1, 探偵 2, アリバイ 2, たくらみ 2
+                        </td>
+                        <td className="py-1.5 px-2 text-stone-400">他から16枚</td>
+                      </tr>
+                      <tr className="hover:bg-white/5">
+                        <td className="py-1.5 px-2.5 font-bold text-amber-400">7人</td>
+                        <td className="py-1.5 px-2 font-mono font-bold text-white">28枚</td>
+                        <td className="py-1.5 px-2 text-stone-200 leading-tight">
+                          第一発見者 1, 犯人 1, 探偵 2, アリバイ 3, たくらみ 2
+                        </td>
+                        <td className="py-1.5 px-2 text-stone-400">他から19枚</td>
+                      </tr>
+                      <tr className="hover:bg-white/5 bg-amber-500/10">
+                        <td className="py-1.5 px-2.5 font-black text-amber-300">8人</td>
+                        <td className="py-1.5 px-2 font-mono font-black text-amber-300">32枚</td>
+                        <td className="py-1.5 px-2 text-amber-200 font-bold leading-tight" colSpan={2}>
+                          全32枚のカードをすべて使用（フルデッキ）
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900 border border-white/10 text-[10.5px] text-stone-300 space-y-1">
+                  <div className="font-bold text-amber-300">🃏 カード全32枚の内訳:</div>
+                  <div className="leading-relaxed">
+                    第一発見者 1枚 / 犯人 1枚 / 探偵 4枚 / アリバイ 5枚 / たくらみ 2枚 / 取り引き 5枚 / うわさ 4枚 / 情報操作 3枚 / 目撃者 3枚 / 一般人 2枚 / いぬ 1枚 / 少年 1枚
+                  </div>
+                  <div className="text-stone-400 text-[10px]">
+                    ※ 3〜7人の時は、必須カードを取り分けた後、残りのプールからランダムに指定枚数が選ばれてデッキが作られます。
+                  </div>
+                </div>
               </div>
 
               <div>

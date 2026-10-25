@@ -8,7 +8,7 @@ interface GameTableProps {
   myPlayerId: string;
   onSelectOpponent?: (player: PlayerPublic) => void;
   selectablePlayerIds?: string[];
-  onInspectCard?: (card: Card) => void;
+  onInspectCard?: (card: Card, sourceLabel?: string) => void;
 }
 
 export const GameTable: React.FC<GameTableProps> = ({
@@ -36,16 +36,17 @@ export const GameTable: React.FC<GameTableProps> = ({
   // Calculate coordinates on an oval/ellipse table
   const getPlayerPosition = (index: number, total: number) => {
     if (total === 1) {
-      return { top: '14%', left: '50%', transform: 'translate(-50%, -50%)' };
+      return { top: '20%', left: '50%', transform: 'translate(-50%, -50%)' };
     }
-    const startAngle = Math.PI * 0.95;
-    const endAngle = Math.PI * 0.05;
+    const startAngle = Math.PI * 0.90;
+    const endAngle = Math.PI * 0.10;
     const angle = startAngle - (index / (total - 1)) * (startAngle - endAngle);
 
-    const rx = 40;
-    const ry = 36;
+    // Keep top players well within the safe zone so their hand cards never clip
+    const rx = 38;
+    const ry = 28;
     const cx = 50;
-    const cy = 46;
+    const cy = 48;
 
     const x = cx + rx * Math.cos(angle);
     const y = cy - ry * Math.sin(angle);
@@ -58,28 +59,28 @@ export const GameTable: React.FC<GameTableProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[370px] sm:h-[450px] md:h-[490px] flex items-center justify-center p-2 select-none">
-      {/* Cheerful Casino Green Felt Table */}
+    <div className="relative w-full h-[360px] sm:h-[430px] md:h-[470px] flex items-center justify-center p-1 sm:p-2 select-none">
+      {/* Cheerful Casino Green Felt Table with squarer corners for more perimeter space */}
       <div
-        className="relative w-full max-w-4xl h-full rounded-[100px] sm:rounded-[140px] md:rounded-[180px] p-3 sm:p-5 shadow-2xl flex items-center justify-center transition-all overflow-hidden"
+        className="relative w-full max-w-4xl h-full rounded-3xl sm:rounded-[40px] p-2 sm:p-5 shadow-2xl flex items-center justify-center transition-all"
         style={{
           background: 'radial-gradient(ellipse at center, #15803d 0%, #166534 65%, #14532d 100%)',
-          boxShadow: 'inset 0 0 50px rgba(0,0,0,0.4), 0 15px 35px rgba(0,0,0,0.5)',
-          border: '10px solid #854d0e',
+          boxShadow: 'inset 0 0 40px rgba(0,0,0,0.45), 0 12px 30px rgba(0,0,0,0.5)',
+          border: '7px solid #854d0e',
           outline: '3px solid #facc15',
         }}
       >
         {/* Felt ornamental inner ring */}
-        <div className="absolute inset-3 sm:inset-5 rounded-[85px] sm:rounded-[120px] md:rounded-[160px] border-2 border-yellow-300/30 pointer-events-none" />
+        <div className="absolute inset-2 sm:inset-3 rounded-2xl sm:rounded-[32px] border-2 border-yellow-300/30 pointer-events-none" />
 
-        {/* Center Community Field */}
-        <div className="absolute top-[46%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 max-w-[260px] sm:max-w-xs text-center pointer-events-auto">
-          {/* Central Discard Pile */}
-          <div className="relative w-24 sm:w-28 h-32 sm:h-36 flex items-center justify-center">
+        {/* Center Community Field: lowered placement and slightly scaled down field card */}
+        <div className="absolute top-[64%] sm:top-[62%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 max-w-[280px] sm:max-w-xs text-center pointer-events-auto">
+          {/* Central Discard Pile / Field Card */}
+          <div className="relative w-24 sm:w-26 h-34 sm:h-38 flex items-center justify-center">
             {discardPile.length === 0 ? (
-              <div className="w-20 sm:w-24 h-28 sm:h-32 rounded-2xl border-2 border-dashed border-emerald-300/40 flex flex-col items-center justify-center text-emerald-100 text-xs font-bold bg-black/15 shadow-inner">
-                <span>場札</span>
-                <span className="text-[10px] opacity-75">捨て札置き場</span>
+              <div className="w-24 sm:w-26 h-34 sm:h-38 rounded-xl border-2 border-dashed border-emerald-300/40 flex flex-col items-center justify-center text-emerald-100 text-xs font-bold bg-black/20 shadow-inner">
+                <span className="font-black text-xs sm:text-sm">場札</span>
+                <span className="text-[9px] opacity-75 mt-0.5">捨て札置き場</span>
               </div>
             ) : (
               <>
@@ -87,46 +88,36 @@ export const GameTable: React.FC<GameTableProps> = ({
                 {discardPile.slice(-3, -1).map((c, i) => (
                   <div
                     key={c.id + i}
-                    onClick={() => onInspectCard && onInspectCard(c)}
-                    className="absolute opacity-40 scale-95 cursor-pointer hover:opacity-80 transition"
+                    onClick={() => onInspectCard && onInspectCard(c, '捨て札置き場')}
+                    className="absolute opacity-35 scale-95 cursor-pointer hover:opacity-75 transition pointer-events-none"
                     style={{
-                      transform: `rotate(${((i + 1) * 14 - 10)}deg) translate(${i * 4}px, ${i * 4}px)`,
+                      transform: `rotate(${((i + 1) * 12 - 8)}deg) translate(${i * 3}px, ${i * 3}px)`,
                     }}
                   >
-                    <CardView card={c} size="sm" showDetails={false} />
+                    <CardView card={c} size="field" showDetails={false} />
                   </div>
                 ))}
 
-                {/* Latest Discarded Card (Tapping it triggers zoom inspect!) */}
+                {/* Latest Played Card: exact same design as hand cards, slightly scaled down */}
                 {latestPlayedCard && (
                   <div
-                    onClick={() => onInspectCard && onInspectCard(latestPlayedCard.card)}
-                    className="relative animate-bounce-short z-20 cursor-pointer group"
-                    title="タップしてカードを大きく表示"
+                    onClick={() => onInspectCard && onInspectCard(latestPlayedCard.card, `${latestPlayedCard.playerName}が出したカード`)}
+                    className="relative z-20 cursor-pointer group hover:scale-105 active:scale-95 transition-transform"
+                    title="タップして詳細を表示"
                   >
                     <CardView
                       card={latestPlayedCard.card}
-                      size="md"
-                      onInspect={onInspectCard}
+                      size="field"
+                      onClick={() => onInspectCard && onInspectCard(latestPlayedCard.card, `${latestPlayedCard.playerName}が出したカード`)}
                     />
-                    <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-slate-950/90 px-2 py-0.5 rounded-full text-[9px] text-amber-300 font-black whitespace-nowrap border border-amber-400 shadow-md flex items-center gap-1 group-hover:scale-105 transition">
-                      <Search className="w-2.5 h-2.5" />
-                      <span>{latestPlayedCard.playerName}の手札</span>
+                    <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-slate-950/95 px-2 py-0.5 rounded-full text-[8.5px] sm:text-[9px] text-amber-300 font-black whitespace-nowrap border border-amber-400 shadow-lg flex items-center gap-1 group-hover:bg-amber-400 group-hover:text-slate-950 transition">
+                      <Search className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
+                      <span>{latestPlayedCard.playerName}が出したカード</span>
                     </div>
                   </div>
                 )}
               </>
             )}
-          </div>
-
-          {/* Round Indicator Badge */}
-          <div className="mt-3 flex items-center gap-2">
-            <span className="px-2.5 py-0.5 bg-emerald-950/90 border border-emerald-400/50 rounded-full text-[10px] sm:text-xs text-yellow-300 font-extrabold shadow">
-              第{round}巡目 {round >= 2 ? '（🔍探偵可能）' : '（1巡目:探偵不可）'}
-            </span>
-            <span className="px-2 py-0.5 bg-black/60 border border-white/20 rounded-full text-[10px] sm:text-xs text-stone-200 font-bold">
-              捨て札: {discardPile.length}枚
-            </span>
           </div>
         </div>
 

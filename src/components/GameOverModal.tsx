@@ -142,17 +142,17 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                   )}
                 </div>
 
-                <div className="flex gap-1.5 overflow-x-auto py-0.5">
+                <div className="flex gap-2.5 overflow-x-auto py-1 scrollbar-thin scrollbar-thumb-amber-500/40">
                   {p.hand.length === 0 ? (
-                    <span className="text-[10px] text-stone-500 py-1">手札なし（すべて使い切り）</span>
+                    <span className="text-xs text-stone-500 py-3 font-bold">手札なし（すべて使い切り）</span>
                   ) : (
                     p.hand.map((card) => (
                       <div
                         key={card.id}
-                        className="shrink-0 cursor-pointer hover:scale-105 transition"
+                        className="shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition"
                         onClick={() => onInspectCard && onInspectCard(card)}
                       >
-                        <CardView card={card} size="sm" showDetails={false} />
+                        <CardView card={card} size="field" showDetails={true} />
                       </div>
                     ))
                   )}

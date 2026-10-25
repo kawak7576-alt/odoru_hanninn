@@ -20,9 +20,33 @@ export interface Card {
   name: string;
   kana: string;
   category: CardCategory;
+  categoryLabel?: string;
   description: string;
+  summary?: string;
+  detail?: string;
+  target?: string;
+  condition?: string;
+  restriction?: string;
   icon: string;
   badgeColor: string;
+}
+
+export interface CardMovementItem {
+  fromId: string;
+  fromName: string;
+  toId: string;
+  toName: string;
+  cardName?: string;
+  isSecret: boolean;
+}
+
+export interface CardMovementEvent {
+  id: string;
+  timestamp: number;
+  effect: 'trade' | 'rumor' | 'info_manipulation' | 'dog' | 'play';
+  effectName: string;
+  summary: string;
+  movements: CardMovementItem[];
 }
 
 export interface PlayerPublic {
@@ -138,7 +162,10 @@ export interface ClientGameState {
     witnessCards?: { targetId: string; targetName: string; cards: Card[] };
     revealedCard?: { card: Card; targetName: string; isCulprit: boolean };
     tradeOfferPrompt?: { fromPlayerId: string; fromPlayerName: string };
-    rumorWaitPrompt?: { rightNeighborId: string; rightNeighborName: string; rightNeighborCardCount: number };
-    infoManipulationPrompt?: boolean;
+    rumorWaitPrompt?: { rightNeighborId: string; rightNeighborName: string; rightNeighborCardCount: number; canDraw?: boolean };
+    infoManipulationPrompt?: boolean | { canGive: boolean };
   } | null;
+
+  // Recent card movement event sanitized for this player
+  latestMovement?: CardMovementEvent | null;
 }
