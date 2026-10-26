@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+@keyframes dashFlow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes reverseDashFlow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 24;
+  }
+}
+
+@keyframes cardGlideA {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  85% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+    transform: scale(0.7) rotate(8deg);
+  }
+}
+
+@keyframes bounceShort {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, calc(-50% - 4px)) scale(1.05);
+  }
+}
+
+.animate-dash-flow {
+  animation: dashFlow 0.75s linear infinite;
+}
+
+.animate-reverse-dash-flow {
+  animation: reverseDashFlow 0.75s linear infinite;
+}
+
+.animate-bounce-short {
+  animation: bounceShort 1.4s ease-in-out infinite;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

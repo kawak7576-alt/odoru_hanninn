@@ -74,6 +74,11 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
   const [selectedRumorIdx, setSelectedRumorIdx] = useState<number | null>(null);
   const [submittedRumor, setSubmittedRumor] = useState(false);
   const [submittedInfo, setSubmittedInfo] = useState(false);
+  const [submittingDone, setSubmittingDone] = useState(false);
+
+  React.useEffect(() => {
+    setSubmittingDone(false);
+  }, [phase, currentTurnPlayerId, activeCardAction?.cardType]);
 
   React.useEffect(() => {
     if (phase !== 'waiting_rumor') {
@@ -454,10 +459,17 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
           </p>
 
           <button
-            onClick={onWitnessDone}
-            className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-sm rounded-xl shadow-lg shadow-cyan-500/30 cursor-pointer transition active:scale-95"
+            disabled={submittingDone}
+            onClick={() => {
+              if (submittingDone) return;
+              setSubmittingDone(true);
+              onWitnessDone();
+            }}
+            className={`w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-sm rounded-xl shadow-lg shadow-cyan-500/30 transition active:scale-95 ${
+              submittingDone ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            }`}
           >
-            確認しました（手番終了）
+            {submittingDone ? '処理中...' : '確認しました（手番終了）'}
           </button>
         </div>
       </div>
@@ -575,10 +587,17 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
           </p>
 
           <button
-            onClick={onBoyDone}
-            className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-black text-xs rounded-xl shadow cursor-pointer"
+            disabled={submittingDone}
+            onClick={() => {
+              if (submittingDone) return;
+              setSubmittingDone(true);
+              onBoyDone();
+            }}
+            className={`w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-black text-xs rounded-xl shadow transition ${
+              submittingDone ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            }`}
           >
-            理解しました（手番終了）
+            {submittingDone ? '処理中...' : '理解しました（手番終了）'}
           </button>
         </div>
       </div>

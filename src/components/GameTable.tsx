@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, ClientGameState, PlayerPublic } from '../types/game';
 import { CardView } from './CardView';
+import { TableMovementArrows } from './TableMovementArrows';
+import { getStoredCardBackImage, DEFAULT_CARD_BACK_IMAGE } from '../utils/cardImageSetting';
 import { Bot, Crown, Sparkles, User, AlertCircle, Search } from 'lucide-react';
 
 interface GameTableProps {
@@ -19,6 +21,18 @@ export const GameTable: React.FC<GameTableProps> = ({
   onInspectCard,
 }) => {
   const { players, currentTurnPlayerId, round, incident, discardPile, latestPlayedCard } = gameState;
+
+  const [cardBackSrc, setCardBackSrc] = useState<string>(getStoredCardBackImage());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setCardBackSrc(getStoredCardBackImage());
+    };
+    window.addEventListener('odoru_card_image_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('odoru_card_image_updated', handleUpdate);
+    };
+  }, []);
 
   // Other players (excluding myself) ordered clockwise starting from the next player
   const myIndex = players.findIndex((p) => p.id === myPlayerId);
@@ -72,6 +86,14 @@ export const GameTable: React.FC<GameTableProps> = ({
       >
         {/* Felt ornamental inner ring */}
         <div className="absolute inset-2 sm:inset-3 rounded-2xl sm:rounded-[32px] border-2 border-yellow-300/30 pointer-events-none" />
+
+        {/* Animated Card Movement Arrows & Gliding Cards */}
+        <TableMovementArrows
+          movement={gameState.latestMovement}
+          otherPlayers={otherPlayers}
+          myPlayerId={myPlayerId}
+          cardBackSrc={cardBackSrc}
+        />
 
         {/* Center Community Field: lowered placement and slightly scaled down field card */}
         <div className="absolute top-[64%] sm:top-[62%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 max-w-[280px] sm:max-w-xs text-center pointer-events-auto">
@@ -157,17 +179,21 @@ export const GameTable: React.FC<GameTableProps> = ({
                     return (
                       <div
                         key={cIdx}
-                        className="absolute w-7 sm:w-9 h-10 sm:h-12 rounded-lg border-2 border-amber-300/80 shadow-md bg-gradient-to-br from-blue-900 to-slate-950 transition-transform origin-bottom overflow-hidden"
+                        className="absolute w-7 sm:w-8 h-10 sm:h-12 rounded-lg border border-amber-300/80 shadow-md bg-slate-900 transition-transform origin-bottom overflow-hidden ring-1 ring-black/40"
                         style={{
                           transform: `translateX(${xOffset}px) rotate(${angleOffset}deg)`,
                           zIndex: cIdx,
                         }}
                       >
-                        <div className="w-full h-full p-0.5 flex items-center justify-center">
-                          <div className="w-full h-full border border-amber-300/40 rounded flex items-center justify-center text-[10px] text-amber-300">
-                            🎭
-                          </div>
-                        </div>
+                        <img
+                          src={cardBackSrc}
+                          alt="手札裏面"
+                          className="w-full h-full object-fill pointer-events-none select-none"
+                          draggable={false}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = DEFAULT_CARD_BACK_IMAGE;
+                          }}
+                        />
                       </div>
                     );
                   })

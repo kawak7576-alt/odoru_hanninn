@@ -11,6 +11,7 @@ import { GameLogDrawer } from './components/GameLogDrawer';
 import { CardDetailModal } from './components/CardDetailModal';
 import { RoomSelectModal } from './components/RoomSelectModal';
 import { CardMovementOverlay } from './components/CardMovementOverlay';
+import { CardImageModal } from './components/CardImageModal';
 import { normalizeRoomId } from './utils/roomId';
 import { sounds } from './utils/sound';
 import {
@@ -84,6 +85,7 @@ export default function App() {
   const [showLogDrawer, setShowLogDrawer] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showIncidentMemo, setShowIncidentMemo] = useState(false);
+  const [showCardImageModal, setShowCardImageModal] = useState(false);
   const [inspectedCard, setInspectedCard] = useState<Card | null>(null);
   const [inspectedCardSource, setInspectedCardSource] = useState<string | undefined>(undefined);
   const [soundEnabled, setSoundEnabled] = useState(sounds.isEnabled());
@@ -582,6 +584,7 @@ export default function App() {
               onStartGame={handleStartGame}
               onOpenRules={() => setShowRules(true)}
               onOpenDashboard={() => setShowDashboard(true)}
+              onOpenCardImageModal={() => setShowCardImageModal(true)}
               onDownloadZip={handleDownloadZip}
               isDownloadingZip={isDownloadingZip}
               onKickDisconnected={handleKickDisconnected}
@@ -772,6 +775,10 @@ export default function App() {
         />
       )}
       {showDashboard && <HistoryDashboard onClose={() => setShowDashboard(false)} />}
+      <CardImageModal
+        isOpen={showCardImageModal}
+        onClose={() => setShowCardImageModal(false)}
+      />
       {gameState && (
         <GameLogDrawer
           logs={gameState.logs}

@@ -14,6 +14,7 @@ import {
   Check,
   DoorOpen,
   Share2,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -32,6 +33,7 @@ interface LobbyProps {
   onStartGame: () => void;
   onOpenRules: () => void;
   onOpenDashboard: () => void;
+  onOpenCardImageModal: () => void;
   onDownloadZip: () => void;
   isDownloadingZip?: boolean;
   onKickDisconnected?: (targetPlayerId: string) => void;
@@ -53,6 +55,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onStartGame,
   onOpenRules,
   onOpenDashboard,
+  onOpenCardImageModal,
   onDownloadZip,
   isDownloadingZip = false,
   onKickDisconnected,
@@ -335,6 +338,14 @@ export const Lobby: React.FC<LobbyProps> = ({
           >
             <History className="w-3.5 h-3.5 text-sky-400" />
             対戦履歴
+          </button>
+          <button
+            onClick={onOpenCardImageModal}
+            className="flex-1 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-400/40 text-purple-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer shadow"
+            title="カード画像を適用・アップロード"
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
+            <span>画像適用</span>
           </button>
           <button
             onClick={onDownloadZip}
