@@ -2,14 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   DEFAULT_CARD_IMAGE,
   DEFAULT_CARD_BACK_IMAGE,
+  DEFAULT_APP_ICON,
   getStoredCardImage,
   getStoredCardBackImage,
+  getStoredAppIcon,
   isCardImageEnabled,
   setStoredCardImage,
   setStoredCardBackImage,
+  setStoredAppIcon,
   setCardImageEnabled,
   resetCardImageToDefault,
   resetCardBackImageToDefault,
+  resetAppIconToDefault,
 } from '../utils/cardImageSetting';
 import { X, Upload, RotateCcw, Check, Eye } from 'lucide-react';
 import { sounds } from '../utils/sound';
@@ -20,19 +24,22 @@ interface CardImageModalProps {
 }
 
 export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'front' | 'back'>('back');
+  const [activeTab, setActiveTab] = useState<'icon' | 'back' | 'front'>('icon');
   const [currentFrontImage, setCurrentFrontImage] = useState<string>(getStoredCardImage());
   const [currentBackImage, setCurrentBackImage] = useState<string>(getStoredCardBackImage());
+  const [currentAppIcon, setCurrentAppIcon] = useState<string>(getStoredAppIcon());
   const [isEnabled, setIsEnabled] = useState<boolean>(isCardImageEnabled());
   const [statusMessage, setStatusMessage] = useState<string>('');
   
   const frontFileInputRef = useRef<HTMLInputElement>(null);
   const backFileInputRef = useRef<HTMLInputElement>(null);
+  const iconFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setCurrentFrontImage(getStoredCardImage());
       setCurrentBackImage(getStoredCardBackImage());
+      setCurrentAppIcon(getStoredAppIcon());
       setIsEnabled(isCardImageEnabled());
       setStatusMessage('');
     }
@@ -42,6 +49,7 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
 
   const isDefaultFront = currentFrontImage === DEFAULT_CARD_IMAGE;
   const isDefaultBack = currentBackImage === DEFAULT_CARD_BACK_IMAGE;
+  const isDefaultIcon = currentAppIcon === DEFAULT_APP_ICON;
 
   const handleFrontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -108,6 +116,37 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
+  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('画像ファイル（PNG、JPG、WEBPなど）を選択してください。');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (dataUrl) {
+        setStoredAppIcon(dataUrl);
+        setCurrentAppIcon(dataUrl);
+        sounds.playCard();
+        setStatusMessage('アプリアイコン・ヘッダーアイコンを変更しました！');
+        setTimeout(() => setStatusMessage(''), 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetIconDefault = () => {
+    resetAppIconToDefault();
+    setCurrentAppIcon(DEFAULT_APP_ICON);
+    sounds.selectCard();
+    setStatusMessage('アイコンを指定の名探偵アイコンに戻しました！');
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
   const handleToggleEnabled = () => {
     const next = !isEnabled;
     setCardImageEnabled(next);
@@ -144,26 +183,37 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
         {/* Tab Switch */}
         <div className="flex border-b border-white/10 bg-slate-950/60 p-1.5 gap-1.5">
           <button
+            onClick={() => setActiveTab('icon')}
+            className={`flex-1 py-2 px-1 rounded-xl font-black text-xs transition cursor-pointer flex items-center justify-center gap-1 ${
+              activeTab === 'icon'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-md'
+                : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
+            }`}
+          >
+            <span>🕵️</span>
+            <span>アイコン</span>
+          </button>
+          <button
             onClick={() => setActiveTab('back')}
-            className={`flex-1 py-2 rounded-xl font-black text-xs transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-1 rounded-xl font-black text-xs transition cursor-pointer flex items-center justify-center gap-1 ${
               activeTab === 'back'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
             }`}
           >
             <span>🎭</span>
-            <span>カード裏面（指定画像）</span>
+            <span>カード裏面</span>
           </button>
           <button
             onClick={() => setActiveTab('front')}
-            className={`flex-1 py-2 rounded-xl font-black text-xs transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-1 rounded-xl font-black text-xs transition cursor-pointer flex items-center justify-center gap-1 ${
               activeTab === 'front'
                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
                 : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
             }`}
           >
             <span>✨</span>
-            <span>カード表面（全12枚）</span>
+            <span>カード表面</span>
           </button>
         </div>
 
@@ -177,7 +227,78 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
             </div>
           )}
 
-          {activeTab === 'back' ? (
+          {activeTab === 'icon' ? (
+            /* App & Header Icon Tab Content */
+            <div className="space-y-3.5">
+              <div className="p-3 rounded-2xl bg-slate-950/80 border border-white/10 flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] text-stone-400 font-bold mb-0.5">アイコンの状態</div>
+                  <div className="text-sm font-black text-white flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                    <span>{isDefaultIcon ? '指定の名探偵アイコン' : 'カスタムアイコン'}</span>
+                  </div>
+                </div>
+                <div className="px-2.5 py-1 rounded-lg bg-amber-950 border border-amber-400/40 text-[10px] text-amber-300 font-bold">
+                  ヘッダー・タブに適用中
+                </div>
+              </div>
+
+              {/* Preview Box for Icon */}
+              <div className="rounded-2xl bg-black/50 border border-white/10 p-4 text-center flex flex-col items-center">
+                <div className="flex items-center justify-between w-full mb-3 px-1">
+                  <span className="text-[11px] font-bold text-stone-400 flex items-center gap-1">
+                    <Eye className="w-3.5 h-3.5 text-amber-400" />
+                    現在のゲームアイコンプレビュー
+                  </span>
+                  {isDefaultIcon && (
+                    <span className="text-[10px] text-amber-300 font-bold">指定アイコン</span>
+                  )}
+                </div>
+
+                <div className="w-28 h-28 rounded-3xl overflow-hidden shadow-2xl border-2 border-amber-400/80 relative bg-slate-950 p-1 flex items-center justify-center">
+                  <img
+                    src={currentAppIcon}
+                    alt="App Icon Preview"
+                    className="w-full h-full object-cover rounded-2xl"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = DEFAULT_APP_ICON;
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-stone-400 mt-2.5">
+                  ※ ゲーム画面ヘッダー左やブラウザタブのファビコンに反映されます
+                </p>
+              </div>
+
+              {/* Actions for Icon */}
+              <div className="space-y-2">
+                <input
+                  ref={iconFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleIconUpload}
+                />
+                <button
+                  onClick={() => iconFileInputRef.current?.click()}
+                  className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition active:scale-95"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>別のアイコン画像をアップロード</span>
+                </button>
+
+                {!isDefaultIcon && (
+                  <button
+                    onClick={handleResetIconDefault}
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-stone-300 hover:text-white font-bold text-xs rounded-xl border border-white/10 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>指定の名探偵アイコンに戻す</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : activeTab === 'back' ? (
             /* Card Back Tab Content */
             <div className="space-y-3.5">
               <div className="p-3 rounded-2xl bg-slate-950/80 border border-white/10 flex items-center justify-between">

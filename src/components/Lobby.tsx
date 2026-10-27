@@ -16,6 +16,7 @@ import {
   Share2,
   Image as ImageIcon,
 } from 'lucide-react';
+import { DEFAULT_APP_ICON, getStoredAppIcon } from '../utils/cardImageSetting';
 
 interface LobbyProps {
   gameState: ClientGameState | null;
@@ -82,8 +83,15 @@ export const Lobby: React.FC<LobbyProps> = ({
     <div className="w-full max-w-xl mx-auto p-4 sm:p-6 bg-slate-900/95 border-2 border-amber-400/50 rounded-3xl shadow-2xl backdrop-blur-md">
       {/* Top Header */}
       <div className="text-center mb-4">
-        <div className="inline-block p-3.5 rounded-3xl bg-amber-500/15 border border-amber-400/40 text-amber-400 mb-2 shadow-inner">
-          <span className="text-3xl sm:text-4xl">🎭</span>
+        <div className="inline-block p-1 rounded-3xl bg-gradient-to-br from-amber-400/30 to-amber-600/10 border-2 border-amber-400/60 mb-2 shadow-xl shadow-amber-500/15">
+          <img
+            src={getStoredAppIcon()}
+            alt="踊る犯人 アイコン"
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover shadow-md"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = DEFAULT_APP_ICON;
+            }}
+          />
         </div>
         <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">踊る犯人</h1>
         <p className="text-xs text-amber-300 font-bold mt-0.5">オンライン対戦ロビー</p>
@@ -134,47 +142,74 @@ export const Lobby: React.FC<LobbyProps> = ({
         </button>
       </div>
 
-      {/* Player Name Profile Bar */}
-      <div className="p-3 rounded-2xl bg-slate-950 border border-white/10 mb-4 flex items-center justify-between gap-2 shadow-inner">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-xs text-stone-400 font-bold shrink-0">あなたの名前:</span>
-          {editingName ? (
-            <input
-              type="text"
-              value={tempName}
-              onChange={(e) => setTempName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-              maxLength={15}
-              autoFocus
-              className="flex-1 bg-slate-900 border border-amber-400 rounded-xl px-2.5 py-1 text-xs text-white font-bold focus:outline-none"
-            />
-          ) : (
-            <span className="font-black text-amber-300 text-sm truncate">
-              {playerName || '名無し探偵'}
+      {/* Player Name Profile Bar - Navy Background with Blue Border */}
+      <div className="p-4 rounded-2xl bg-slate-950/80 border-2 border-blue-500 mb-5 shadow-lg shadow-blue-500/20 ring-1 ring-blue-500/30 transition-all">
+        {/* Notice header label */}
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs text-blue-200 font-bold">対戦で全員に表示される名前です</span>
+          {!editingName && (
+            <span className="text-[11px] text-blue-300/80 font-bold hidden sm:inline">
+              クリックまたは「変更」ボタンで編集
             </span>
           )}
         </div>
 
-        {editingName ? (
-          <button
-            onClick={handleSaveName}
-            className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow flex items-center gap-1 cursor-pointer transition"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>保存</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => {
-              setTempName(playerName);
-              setEditingName(true);
-            }}
-            className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer transition"
-          >
-            <Edit2 className="w-3 h-3 text-amber-400" />
-            <span>変更</span>
-          </button>
-        )}
+        {/* Main row: あなたの名前： [名前] [変更] */}
+        <div className="flex items-center justify-between gap-2 w-full">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-xs sm:text-sm text-blue-300 font-bold shrink-0 drop-shadow whitespace-nowrap">
+              あなたの名前：
+            </span>
+            {editingName ? (
+              <input
+                type="text"
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
+                maxLength={15}
+                autoFocus
+                placeholder="名前を入力..."
+                className="min-w-0 flex-1 bg-slate-900 border-2 border-blue-400 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-sm sm:text-base text-white font-black focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-inner"
+              />
+            ) : (
+              <div
+                onClick={() => {
+                  setTempName(playerName);
+                  setEditingName(true);
+                }}
+                className="min-w-0 flex-1 bg-slate-900/90 hover:bg-slate-900 border-2 border-blue-500/60 hover:border-blue-400 rounded-xl px-3 py-1.5 flex items-center justify-between cursor-pointer transition shadow-inner group"
+                title="クリックして名前を変更"
+              >
+                <span className="font-black text-white text-sm sm:text-base tracking-wide truncate drop-shadow">
+                  {playerName || '名無し探偵'}
+                </span>
+                <Edit2 className="w-3.5 h-3.5 text-blue-300/70 group-hover:text-blue-200 shrink-0 ml-1 transition" />
+              </div>
+            )}
+          </div>
+
+          {editingName ? (
+            <button
+              onClick={handleSaveName}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-md border border-blue-400/60 flex items-center justify-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+            >
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+              <span>保存</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setTempName(playerName);
+                setEditingName(true);
+              }}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-md border border-blue-400/60 flex items-center justify-center gap-1 cursor-pointer transition active:scale-95 hover:scale-105 shrink-0"
+              title="名前を変更する"
+            >
+              <Edit2 className="w-3.5 h-3.5 text-white" />
+              <span>変更</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Players List (3 - 8 required) */}

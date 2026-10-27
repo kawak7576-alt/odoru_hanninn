@@ -243,7 +243,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
 
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-        <div className="bg-slate-900 border-2 border-orange-500/80 rounded-3xl max-w-lg w-full p-4 sm:p-5 shadow-2xl flex flex-col max-h-[92vh] overflow-y-auto">
+        <div className="relative my-auto bg-slate-900 border-2 border-orange-500/80 rounded-3xl max-w-lg w-full p-4 sm:p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
           <div className="text-center mb-2">
             <span className="text-3xl">🤝</span>
             <h2 className="text-lg font-black text-orange-300">秘密の取り引き</h2>
@@ -336,7 +336,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
 
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-        <div className="bg-slate-900 border-2 border-orange-500 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl animate-bounce-short flex flex-col max-h-[92vh] overflow-y-auto">
+        <div className="relative my-auto bg-slate-900 border-2 border-orange-500 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
           <div className="text-3xl mb-1">🤝</div>
           <h2 className="text-lg font-black text-orange-300">取り引きの要請！</h2>
           <p className="text-xs text-stone-200 mt-1 mb-2">

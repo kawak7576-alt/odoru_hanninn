@@ -10,8 +10,8 @@ import { RulesModal } from './components/RulesModal';
 import { GameLogDrawer } from './components/GameLogDrawer';
 import { CardDetailModal } from './components/CardDetailModal';
 import { RoomSelectModal } from './components/RoomSelectModal';
-import { CardMovementOverlay } from './components/CardMovementOverlay';
 import { CardImageModal } from './components/CardImageModal';
+import { getStoredAppIcon, DEFAULT_APP_ICON, updateFavicon } from './utils/cardImageSetting';
 import { normalizeRoomId } from './utils/roomId';
 import { sounds } from './utils/sound';
 import {
@@ -86,7 +86,19 @@ export default function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showIncidentMemo, setShowIncidentMemo] = useState(false);
   const [showCardImageModal, setShowCardImageModal] = useState(false);
+  const [appIcon, setAppIcon] = useState<string>(getStoredAppIcon);
   const [inspectedCard, setInspectedCard] = useState<Card | null>(null);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      const icon = getStoredAppIcon();
+      setAppIcon(icon);
+      updateFavicon(icon);
+    };
+    window.addEventListener('odoru_card_image_updated', handleUpdate);
+    updateFavicon(getStoredAppIcon());
+    return () => window.removeEventListener('odoru_card_image_updated', handleUpdate);
+  }, []);
   const [inspectedCardSource, setInspectedCardSource] = useState<string | undefined>(undefined);
   const [soundEnabled, setSoundEnabled] = useState(sounds.isEnabled());
 
@@ -479,7 +491,14 @@ export default function App() {
       {/* Top Navbar */}
       <header className="w-full border-b border-white/10 bg-slate-900/90 backdrop-blur-md px-2.5 sm:px-5 py-1.5 flex items-center justify-between sticky top-0 z-40 shadow-sm">
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <span className="text-xl filter drop-shadow">🎭</span>
+          <img
+            src={appIcon}
+            alt="踊る犯人 アイコン"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-amber-400/60 shadow-md shadow-amber-500/20"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = DEFAULT_APP_ICON;
+            }}
+          />
           <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center whitespace-nowrap">
             <span className="text-amber-400">踊る犯人</span>
           </h1>
@@ -683,11 +702,6 @@ export default function App() {
           </div>
         )}
       </main>
-
-      {/* 4. カード移動の演出: Non-blocking card movement overlay banner */}
-      {gameState?.latestMovement && (
-        <CardMovementOverlay movement={gameState.latestMovement} />
-      )}
 
       {/* Interactive Action Modals */}
       {gameState && (
