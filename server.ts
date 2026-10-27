@@ -1757,13 +1757,23 @@ wss.on('connection', (rawWs: WebSocket) => {
 
         case 'ACTION_DETECTIVE': {
           const { playerId, targetPlayerId } = data;
-          handleDetectiveAccusation(room, playerId, targetPlayerId);
+          const assignedId = playerId || ws.boundPlayerId;
+          if (!room.activeCardAction || room.activeCardAction.cardType !== 'detective' || room.activeCardAction.turnPlayerId !== assignedId) {
+            return;
+          }
+          room.activeCardAction = null;
+          handleDetectiveAccusation(room, assignedId, targetPlayerId);
           break;
         }
 
         case 'ACTION_TRADE_OFFER': {
           const { playerId, targetPlayerId, cardId } = data;
-          handleTradeOffer(room, playerId, targetPlayerId, cardId);
+          const assignedId = playerId || ws.boundPlayerId;
+          if (!room.activeCardAction || room.activeCardAction.cardType !== 'trade' || room.activeCardAction.turnPlayerId !== assignedId) {
+            return;
+          }
+          room.activeCardAction = null;
+          handleTradeOffer(room, assignedId, targetPlayerId, cardId);
           break;
         }
 
@@ -1775,35 +1785,57 @@ wss.on('connection', (rawWs: WebSocket) => {
 
         case 'ACTION_WITNESS': {
           const { playerId, targetPlayerId } = data;
-          handleWitnessAction(room, playerId, targetPlayerId);
+          const assignedId = playerId || ws.boundPlayerId;
+          if (!room.activeCardAction || room.activeCardAction.cardType !== 'witness' || room.activeCardAction.turnPlayerId !== assignedId) {
+            return;
+          }
+          room.activeCardAction = null;
+          handleWitnessAction(room, assignedId, targetPlayerId);
           break;
         }
 
         case 'ACTION_WITNESS_DONE': {
+          const assignedId = data.playerId || ws.boundPlayerId;
+          if (!room.witnessInfo || (assignedId && room.witnessInfo.turnPlayerId !== assignedId)) {
+            return;
+          }
+          room.witnessInfo = null;
           advanceTurn(room);
           break;
         }
 
         case 'ACTION_DOG': {
           const { playerId, targetPlayerId, cardIndex } = data;
-          handleDogAction(room, playerId, targetPlayerId, cardIndex);
+          const assignedId = playerId || ws.boundPlayerId;
+          if (!room.activeCardAction || room.activeCardAction.cardType !== 'dog' || room.activeCardAction.turnPlayerId !== assignedId) {
+            return;
+          }
+          room.activeCardAction = null;
+          handleDogAction(room, assignedId, targetPlayerId, cardIndex);
           break;
         }
 
         case 'ACTION_BOY_DONE': {
+          const assignedId = data.playerId || ws.boundPlayerId;
+          if (!room.boyNotifiedPlayerId || (assignedId && room.boyNotifiedPlayerId !== assignedId)) {
+            return;
+          }
+          room.boyNotifiedPlayerId = null;
           advanceTurn(room);
           break;
         }
 
         case 'ACTION_RUMOR_PICK': {
           const { playerId, cardIndex } = data;
-          handleRumorPick(room, playerId, cardIndex);
+          const assignedId = playerId || ws.boundPlayerId;
+          handleRumorPick(room, assignedId, cardIndex);
           break;
         }
 
         case 'ACTION_INFO_MANIPULATION_PICK': {
           const { playerId, cardId } = data;
-          handleInfoManipulationPick(room, playerId, cardId);
+          const assignedId = playerId || ws.boundPlayerId;
+          handleInfoManipulationPick(room, assignedId, cardId);
           break;
         }
 
@@ -1874,7 +1906,10 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1885,9 +1920,32 @@ async function startServer() {
     });
   }
 
-  const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+  // Parse --port from command line args if provided (e.g. `npm run dev --port 3000`)
+  function getListenPort(): number {
+    const portArgIdx = process.argv.indexOf('--port');
+    if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+      const p = parseInt(process.argv[portArgIdx + 1], 10);
+      if (!isNaN(p) && p > 0) return p;
+    }
+    // In dev mode with Vite middleware, the dev server must always bind to 3000
+    if (!isProd) {
+      return 3000;
+    }
+    if (process.env.PORT) {
+      const p = parseInt(process.env.PORT, 10);
+      if (!isNaN(p) && p > 0) return p;
+    }
+    return 3000;
+  }
+
+  const PORT = getListenPort();
+
+  server.on('error', (err: any) => {
+    console.error('Server error:', err);
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${PORT} (host: 0.0.0.0, isProd: ${isProd})`);
   });
 }
 
