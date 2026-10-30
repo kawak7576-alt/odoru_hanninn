@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { createServer as createViteServer } from 'vite';
@@ -1381,7 +1382,87 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+
+interface CustomImagesConfig {
+  frontImage: string;
+  backImage: string;
+  appIcon: string;
+  isEnabled: boolean;
+}
+
+const CUSTOM_IMAGES_FILE = path.join(__dirname, 'custom_images_data.json');
+const DEFAULT_CUSTOM_IMAGES: CustomImagesConfig = {
+  frontImage: '/assets/aistudio/odorugazou_bddf713c.png',
+  backImage: '/assets/aistudio/card_back.png',
+  appIcon: '/assets/aistudio/image_451e28c3.png',
+  isEnabled: true,
+};
+
+let serverCustomImages: CustomImagesConfig = { ...DEFAULT_CUSTOM_IMAGES };
+
+try {
+  if (fs.existsSync(CUSTOM_IMAGES_FILE)) {
+    const raw = fs.readFileSync(CUSTOM_IMAGES_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    serverCustomImages = { ...DEFAULT_CUSTOM_IMAGES, ...parsed };
+  }
+} catch (e) {
+  console.warn('Failed to load custom_images_data.json:', e);
+}
+
+function saveCustomImages() {
+  try {
+    fs.writeFileSync(CUSTOM_IMAGES_FILE, JSON.stringify(serverCustomImages), 'utf-8');
+  } catch (e) {
+    console.warn('Failed to save custom_images_data.json:', e);
+  }
+}
+
+function broadcastCustomImages() {
+  const msg = JSON.stringify({
+    type: 'SYNC_CUSTOM_IMAGES',
+    images: serverCustomImages,
+  });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(msg);
+      } catch {
+        // ignore
+      }
+    }
+  });
+}
+
+app.get('/api/custom-images', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.json(serverCustomImages);
+});
+
+app.post('/api/custom-images', (req, res) => {
+  try {
+    const { frontImage, backImage, appIcon, isEnabled } = req.body || {};
+    if (typeof frontImage === 'string' && frontImage.trim()) {
+      serverCustomImages.frontImage = frontImage;
+    }
+    if (typeof backImage === 'string' && backImage.trim()) {
+      serverCustomImages.backImage = backImage;
+    }
+    if (typeof appIcon === 'string' && appIcon.trim()) {
+      serverCustomImages.appIcon = appIcon;
+    }
+    if (typeof isEnabled === 'boolean') {
+      serverCustomImages.isEnabled = isEnabled;
+    }
+    saveCustomImages();
+    broadcastCustomImages();
+    res.json({ success: true, images: serverCustomImages });
+  } catch (err: any) {
+    console.error('Error updating custom images:', err);
+    res.status(500).json({ error: 'Failed to update custom images' });
+  }
+});
 
 app.get('/api/matches', (_req, res) => {
   res.json({ matches: matchHistory });
@@ -1462,6 +1543,13 @@ wss.on('close', () => {
 wss.on('connection', (rawWs: WebSocket) => {
   const ws = rawWs as ExtWebSocket;
   ws.isAlive = true;
+
+  // Immediately send custom images to newly connected client (critical for smartphones joining)
+  try {
+    ws.send(JSON.stringify({ type: 'SYNC_CUSTOM_IMAGES', images: serverCustomImages }));
+  } catch {
+    // ignore
+  }
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -1842,6 +1930,27 @@ wss.on('connection', (rawWs: WebSocket) => {
         case 'RESET_ROOM':
         case 'RESTART_GAME': {
           resetRoomToLobby(room);
+          break;
+        }
+
+        case 'UPDATE_CUSTOM_IMAGES': {
+          const { images } = data;
+          if (images) {
+            if (typeof images.frontImage === 'string' && images.frontImage.trim()) {
+              serverCustomImages.frontImage = images.frontImage;
+            }
+            if (typeof images.backImage === 'string' && images.backImage.trim()) {
+              serverCustomImages.backImage = images.backImage;
+            }
+            if (typeof images.appIcon === 'string' && images.appIcon.trim()) {
+              serverCustomImages.appIcon = images.appIcon;
+            }
+            if (typeof images.isEnabled === 'boolean') {
+              serverCustomImages.isEnabled = images.isEnabled;
+            }
+            saveCustomImages();
+            broadcastCustomImages();
+          }
           break;
         }
 
