@@ -11,7 +11,13 @@ import { GameLogDrawer } from './components/GameLogDrawer';
 import { CardDetailModal } from './components/CardDetailModal';
 import { RoomSelectModal } from './components/RoomSelectModal';
 import { CardImageModal } from './components/CardImageModal';
-import { getStoredAppIcon, DEFAULT_APP_ICON, updateFavicon } from './utils/cardImageSetting';
+import {
+  getStoredAppIcon,
+  DEFAULT_APP_ICON,
+  updateFavicon,
+  fetchRemoteCustomImages,
+  applyRemoteCustomImages,
+} from './utils/cardImageSetting';
 import { normalizeRoomId } from './utils/roomId';
 import { sounds } from './utils/sound';
 import {
@@ -90,6 +96,7 @@ export default function App() {
   const [inspectedCard, setInspectedCard] = useState<Card | null>(null);
 
   useEffect(() => {
+    fetchRemoteCustomImages();
     const handleUpdate = () => {
       const icon = getStoredAppIcon();
       setAppIcon(icon);
@@ -171,6 +178,12 @@ export default function App() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'PONG') {
           setIsConnected(true);
+          return;
+        }
+        if (msg.type === 'SYNC_CUSTOM_IMAGES') {
+          if (msg.images) {
+            applyRemoteCustomImages(msg.images);
+          }
           return;
         }
         if (msg.type === 'ROOM_UPDATE') {

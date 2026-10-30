@@ -321,26 +321,26 @@ export function buildDeckForPlayerCount(playerCount: number): Card[] {
 
   switch (playerCount) {
     case 3:
-      mandatoryCounts.detective = 1;
+      mandatoryCounts.detective = 2; // 3人時は探偵2枚以上確定
       mandatoryCounts.alibi = 1;
       break;
     case 4:
-      mandatoryCounts.detective = 1;
+      mandatoryCounts.detective = 2; // 4人時は探偵2枚以上確定
       mandatoryCounts.alibi = 1;
       mandatoryCounts.conspiracy = 1;
       break;
     case 5:
-      mandatoryCounts.detective = 1;
+      mandatoryCounts.detective = 2; // 5人時は探偵2枚以上確定
       mandatoryCounts.alibi = 2;
       mandatoryCounts.conspiracy = 1;
       break;
     case 6:
-      mandatoryCounts.detective = 2;
+      mandatoryCounts.detective = 3; // 6人時は探偵3枚以上確定
       mandatoryCounts.alibi = 2;
       mandatoryCounts.conspiracy = 2;
       break;
     case 7:
-      mandatoryCounts.detective = 2;
+      mandatoryCounts.detective = 3; // 7人時は探偵3枚以上確定
       mandatoryCounts.alibi = 3;
       mandatoryCounts.conspiracy = 2;
       break;

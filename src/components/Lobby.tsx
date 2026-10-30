@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ClientGameState } from '../types/game';
 import {
   Users,
@@ -63,6 +63,15 @@ export const Lobby: React.FC<LobbyProps> = ({
 }) => {
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(playerName);
+  const [appIcon, setAppIcon] = useState<string>(getStoredAppIcon);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setAppIcon(getStoredAppIcon());
+    };
+    window.addEventListener('odoru_card_image_updated', handleUpdate);
+    return () => window.removeEventListener('odoru_card_image_updated', handleUpdate);
+  }, []);
 
   const players = gameState?.players || [];
   const myPlayer = players.find((p) => p.id === myPlayerId);
@@ -85,7 +94,7 @@ export const Lobby: React.FC<LobbyProps> = ({
       <div className="text-center mb-4">
         <div className="inline-block p-1 rounded-3xl bg-gradient-to-br from-amber-400/30 to-amber-600/10 border-2 border-amber-400/60 mb-2 shadow-xl shadow-amber-500/15">
           <img
-            src={getStoredAppIcon()}
+            src={appIcon}
             alt="踊る犯人 アイコン"
             className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover shadow-md"
             onError={(e) => {

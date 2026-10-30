@@ -14,6 +14,7 @@ import {
   resetCardImageToDefault,
   resetCardBackImageToDefault,
   resetAppIconToDefault,
+  compressAndResizeImage,
 } from '../utils/cardImageSetting';
 import { X, Upload, RotateCcw, Check, Eye } from 'lucide-react';
 import { sounds } from '../utils/sound';
@@ -51,7 +52,7 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
   const isDefaultBack = currentBackImage === DEFAULT_CARD_BACK_IMAGE;
   const isDefaultIcon = currentAppIcon === DEFAULT_APP_ICON;
 
-  const handleFrontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFrontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -60,23 +61,23 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        setStoredCardImage(dataUrl);
-        setCardImageEnabled(true);
-        setCurrentFrontImage(dataUrl);
-        setIsEnabled(true);
-        sounds.playCard();
-        setStatusMessage('表面のカスタム画像を適用しました！');
-        setTimeout(() => setStatusMessage(''), 3000);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      setStatusMessage('画像を最適化して同期中...');
+      const dataUrl = await compressAndResizeImage(file, 1600, 0.88);
+      setStoredCardImage(dataUrl, true);
+      setCardImageEnabled(true, true);
+      setCurrentFrontImage(dataUrl);
+      setIsEnabled(true);
+      sounds.playCard();
+      setStatusMessage('表面のカスタム画像を適用しました！（スマホ・全デバイスへ自動同期）');
+      setTimeout(() => setStatusMessage(''), 3500);
+    } catch (err) {
+      console.error(err);
+      alert('画像の処理に失敗しました。');
+    }
   };
 
-  const handleBackUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBackUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -85,18 +86,18 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        setStoredCardBackImage(dataUrl);
-        setCurrentBackImage(dataUrl);
-        sounds.playCard();
-        setStatusMessage('裏面のカスタム画像を適用しました！');
-        setTimeout(() => setStatusMessage(''), 3000);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      setStatusMessage('画像を最適化して同期中...');
+      const dataUrl = await compressAndResizeImage(file, 1200, 0.88);
+      setStoredCardBackImage(dataUrl, true);
+      setCurrentBackImage(dataUrl);
+      sounds.playCard();
+      setStatusMessage('裏面のカスタム画像を適用しました！（スマホ・全デバイスへ自動同期）');
+      setTimeout(() => setStatusMessage(''), 3500);
+    } catch (err) {
+      console.error(err);
+      alert('画像の処理に失敗しました。');
+    }
   };
 
   const handleResetFrontDefault = () => {
@@ -104,7 +105,7 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     setCurrentFrontImage(DEFAULT_CARD_IMAGE);
     setIsEnabled(true);
     sounds.selectCard();
-    setStatusMessage('表面を用意された公式画像に戻しました！');
+    setStatusMessage('表面を用意された公式画像に戻しました！（全デバイス同期）');
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -112,11 +113,11 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     resetCardBackImageToDefault();
     setCurrentBackImage(DEFAULT_CARD_BACK_IMAGE);
     sounds.selectCard();
-    setStatusMessage('裏面を指定の切り抜き画像に戻しました！');
+    setStatusMessage('裏面を指定の切り抜き画像に戻しました！（全デバイス同期）');
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -125,18 +126,18 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        setStoredAppIcon(dataUrl);
-        setCurrentAppIcon(dataUrl);
-        sounds.playCard();
-        setStatusMessage('アプリアイコン・ヘッダーアイコンを変更しました！');
-        setTimeout(() => setStatusMessage(''), 3000);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      setStatusMessage('アイコンを最適化して同期中...');
+      const dataUrl = await compressAndResizeImage(file, 800, 0.9);
+      setStoredAppIcon(dataUrl, true);
+      setCurrentAppIcon(dataUrl);
+      sounds.playCard();
+      setStatusMessage('アプリアイコン・ヘッダーアイコンを変更しました！（全デバイス同期）');
+      setTimeout(() => setStatusMessage(''), 3500);
+    } catch (err) {
+      console.error(err);
+      alert('アイコンの処理に失敗しました。');
+    }
   };
 
   const handleResetIconDefault = () => {

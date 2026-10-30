@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CARD_DEFINITIONS, CardMeta } from '../game/cardData';
 import { CardType } from '../types/game';
 import { BookOpen, X, Shield, Search, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import {
+  CARD_SPRITE_GRID,
+  getStoredCardImage,
+  isCardImageEnabled,
+} from '../utils/cardImageSetting';
 
 interface RulesModalProps {
   onClose: () => void;
@@ -11,6 +16,19 @@ interface RulesModalProps {
 
 export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = true, onToggleSound }) => {
   const [activeTab, setActiveTab] = useState<'cards' | 'rules'>('cards');
+  const [cardImageSrc, setCardImageSrc] = useState<string>(getStoredCardImage());
+  const [useImage, setUseImage] = useState<boolean>(isCardImageEnabled());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setCardImageSrc(getStoredCardImage());
+      setUseImage(isCardImageEnabled());
+    };
+    window.addEventListener('odoru_card_image_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('odoru_card_image_updated', handleUpdate);
+    };
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5">
@@ -53,7 +71,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-stone-400 hover:text-white transition"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-stone-400 hover:text-white transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -63,7 +81,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
         <div className="flex gap-2 mb-4 shrink-0">
           <button
             onClick={() => setActiveTab('cards')}
-            className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
               activeTab === 'cards'
                 ? 'bg-amber-500 text-slate-950 shadow-md'
                 : 'bg-slate-800 text-stone-300 hover:bg-slate-700'
@@ -73,7 +91,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
           </button>
           <button
             onClick={() => setActiveTab('rules')}
-            className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
               activeTab === 'rules'
                 ? 'bg-amber-500 text-slate-950 shadow-md'
                 : 'bg-slate-800 text-stone-300 hover:bg-slate-700'
@@ -87,24 +105,49 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
         <div className="flex-1 overflow-y-auto pr-1 space-y-3 scrollbar-thin">
           {activeTab === 'cards' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {Object.values(CARD_DEFINITIONS).map((card: CardMeta) => (
-                <div
-                  key={card.type}
-                  className="p-3 rounded-2xl bg-slate-950 border border-white/5 hover:border-amber-500/30 transition flex gap-3 text-xs"
-                >
-                  <div className="w-12 h-16 rounded-xl bg-slate-900 border border-white/10 flex flex-col items-center justify-center shrink-0 shadow-inner">
-                    <span className="text-xl">{card.icon}</span>
-                    <span className="text-[9px] text-stone-400 mt-0.5">{card.totalCount}枚</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-amber-300 text-sm">{card.name}</span>
-                      <span className="text-[10px] text-stone-500 font-mono">{card.kana}</span>
+              {Object.values(CARD_DEFINITIONS).map((card: CardMeta) => {
+                const sprite = CARD_SPRITE_GRID[card.type] || { col: 0, row: 0 };
+                const posX = (sprite.col / 3) * 100;
+                const posY = (sprite.row / 2) * 100;
+
+                return (
+                  <div
+                    key={card.type}
+                    className="p-2.5 sm:p-3 rounded-2xl bg-slate-950 border border-white/10 hover:border-amber-500/40 transition flex gap-3 text-xs items-center shadow-md"
+                  >
+                    {/* Card Illustration */}
+                    {useImage && cardImageSrc ? (
+                      <div
+                        className="w-14 sm:w-16 h-20 sm:h-22 rounded-xl overflow-hidden shadow-lg border-2 border-amber-500/40 shrink-0 relative bg-slate-900 flex flex-col justify-end p-1 transition-transform hover:scale-105"
+                        style={{
+                          backgroundImage: `url(${cardImageSrc})`,
+                          backgroundSize: '400% 300%',
+                          backgroundPosition: `${posX}% ${posY}%`,
+                          backgroundRepeat: 'no-repeat',
+                        }}
+                      >
+                        <div className="self-end px-1.5 py-0.5 rounded-md bg-black/85 backdrop-blur-sm text-[9px] font-black text-amber-300 border border-white/20 shadow">
+                          {card.totalCount}枚
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-14 sm:w-16 h-20 sm:h-22 rounded-xl bg-slate-900 border border-white/10 flex flex-col items-center justify-center shrink-0 shadow-inner">
+                        <span className="text-2xl">{card.icon}</span>
+                        <span className="text-[10px] text-amber-300 mt-1 font-bold">{card.totalCount}枚</span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="font-extrabold text-amber-300 text-sm">{card.name}</span>
+                        <span className="text-[10px] text-stone-400 font-bold bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                          {card.categoryLabel}
+                        </span>
+                      </div>
+                      <p className="text-stone-300 leading-snug text-[11px]">{card.detail}</p>
                     </div>
-                    <p className="text-stone-300 mt-1 leading-snug text-[11px]">{card.detail}</p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="space-y-4 text-xs text-stone-300 leading-relaxed bg-slate-950/60 p-4 rounded-2xl border border-white/5">
@@ -124,6 +167,9 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
                 </h3>
                 <p className="text-[11px] text-stone-300 mb-2">
                   人数に応じてデッキ総数（1人4枚 × 人数）と必須カードの枚数が決まります。
+                  <span className="text-amber-300 font-bold ml-1">
+                    （3〜5人は探偵2枚以上確定、6〜8人は探偵3枚以上確定！）
+                  </span>
                 </p>
 
                 <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/40 mb-2.5">
@@ -141,47 +187,47 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
                         <td className="py-1.5 px-2.5 font-bold text-amber-400">3人</td>
                         <td className="py-1.5 px-2 font-mono font-bold text-white">12枚</td>
                         <td className="py-1.5 px-2 text-stone-200 leading-tight">
-                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 1
+                          第一発見者 1, 犯人 1, <span className="text-cyan-300 font-bold">探偵 2</span>, アリバイ 1
                         </td>
-                        <td className="py-1.5 px-2 text-stone-400">他から8枚</td>
+                        <td className="py-1.5 px-2 text-stone-400">他から7枚</td>
                       </tr>
                       <tr className="hover:bg-white/5">
                         <td className="py-1.5 px-2.5 font-bold text-amber-400">4人</td>
                         <td className="py-1.5 px-2 font-mono font-bold text-white">16枚</td>
                         <td className="py-1.5 px-2 text-stone-200 leading-tight">
-                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 1, たくらみ 1
+                          第一発見者 1, 犯人 1, <span className="text-cyan-300 font-bold">探偵 2</span>, アリバイ 1, たくらみ 1
                         </td>
-                        <td className="py-1.5 px-2 text-stone-400">他から11枚</td>
+                        <td className="py-1.5 px-2 text-stone-400">他から10枚</td>
                       </tr>
                       <tr className="hover:bg-white/5">
                         <td className="py-1.5 px-2.5 font-bold text-amber-400">5人</td>
                         <td className="py-1.5 px-2 font-mono font-bold text-white">20枚</td>
                         <td className="py-1.5 px-2 text-stone-200 leading-tight">
-                          第一発見者 1, 犯人 1, 探偵 1, アリバイ 2, たくらみ 1
+                          第一発見者 1, 犯人 1, <span className="text-cyan-300 font-bold">探偵 2</span>, アリバイ 2, たくらみ 1
                         </td>
-                        <td className="py-1.5 px-2 text-stone-400">他から14枚</td>
+                        <td className="py-1.5 px-2 text-stone-400">他から13枚</td>
                       </tr>
                       <tr className="hover:bg-white/5">
                         <td className="py-1.5 px-2.5 font-bold text-amber-400">6人</td>
                         <td className="py-1.5 px-2 font-mono font-bold text-white">24枚</td>
                         <td className="py-1.5 px-2 text-stone-200 leading-tight">
-                          第一発見者 1, 犯人 1, 探偵 2, アリバイ 2, たくらみ 2
+                          第一発見者 1, 犯人 1, <span className="text-cyan-300 font-bold">探偵 3</span>, アリバイ 2, たくらみ 2
                         </td>
-                        <td className="py-1.5 px-2 text-stone-400">他から16枚</td>
+                        <td className="py-1.5 px-2 text-stone-400">他から15枚</td>
                       </tr>
                       <tr className="hover:bg-white/5">
                         <td className="py-1.5 px-2.5 font-bold text-amber-400">7人</td>
                         <td className="py-1.5 px-2 font-mono font-bold text-white">28枚</td>
                         <td className="py-1.5 px-2 text-stone-200 leading-tight">
-                          第一発見者 1, 犯人 1, 探偵 2, アリバイ 3, たくらみ 2
+                          第一発見者 1, 犯人 1, <span className="text-cyan-300 font-bold">探偵 3</span>, アリバイ 3, たくらみ 2
                         </td>
-                        <td className="py-1.5 px-2 text-stone-400">他から19枚</td>
+                        <td className="py-1.5 px-2 text-stone-400">他から18枚</td>
                       </tr>
                       <tr className="hover:bg-white/5 bg-amber-500/10">
                         <td className="py-1.5 px-2.5 font-black text-amber-300">8人</td>
                         <td className="py-1.5 px-2 font-mono font-black text-amber-300">32枚</td>
                         <td className="py-1.5 px-2 text-amber-200 font-bold leading-tight" colSpan={2}>
-                          全32枚のカードをすべて使用（フルデッキ）
+                          全32枚のカードをすべて使用（探偵4枚確定・フルデッキ）
                         </td>
                       </tr>
                     </tbody>
