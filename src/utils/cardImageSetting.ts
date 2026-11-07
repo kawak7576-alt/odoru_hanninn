@@ -9,6 +9,7 @@ export interface CustomImagesConfig {
   backImage: string;
   appIcon: string;
   isEnabled: boolean;
+  updatedAt: number;
 }
 
 export const CARD_SPRITE_GRID: Record<CardType, { col: number; row: number }> = {
@@ -26,14 +27,20 @@ export const CARD_SPRITE_GRID: Record<CardType, { col: number; row: number }> = 
   boy: { col: 3, row: 2 },
 };
 
+// In-memory fallback cache so component re-renders and uploads never drop custom images
+let memoryCardImage: string | null = null;
+let memoryCardBackImage: string | null = null;
+let memoryAppIcon: string | null = null;
+let memoryCardImageEnabled: boolean | null = null;
+
 /**
  * Resizes and compresses an image via HTMLCanvas to prevent mobile browser localStorage QuotaExceededError.
- * Keeps output under 300KB while maintaining crisp, high-DPI quality.
+ * Uses WebP or high-quality JPEG to keep output under 300KB while maintaining crisp, high-DPI quality.
  */
 export async function compressAndResizeImage(
   file: File,
-  maxDimension: number = 1600,
-  quality: number = 0.85
+  maxDimension: number = 1400,
+  quality: number = 0.88
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -69,7 +76,7 @@ export async function compressAndResizeImage(
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Prefer webp, fallback to jpeg or png
+        // 1. Prefer webp
         try {
           const webpData = canvas.toDataURL('image/webp', quality);
           if (webpData.startsWith('data:image/webp')) {
@@ -77,13 +84,23 @@ export async function compressAndResizeImage(
             return;
           }
         } catch {
-          // fallback
+          // ignore
         }
 
+        // 2. High-quality JPEG fallback (universally supported, compresses 12-card sheet to ~250KB)
         try {
-          const isJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg';
-          const format = isJpeg ? 'image/jpeg' : 'image/png';
-          resolve(canvas.toDataURL(format, quality));
+          const jpegData = canvas.toDataURL('image/jpeg', quality);
+          if (jpegData.startsWith('data:image/jpeg')) {
+            resolve(jpegData);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+
+        // 3. Fallback to canvas png or raw reader
+        try {
+          resolve(canvas.toDataURL('image/png'));
         } catch {
           resolve(e.target?.result as string);
         }
@@ -94,10 +111,64 @@ export async function compressAndResizeImage(
   });
 }
 
+/**
+ * Uploads an image file to the backend server and stores the resulting short static file URL.
+ * Automatically updates client state, local storage, and broadcasts to other players/devices.
+ */
+export async function uploadCustomImage(
+  file: File,
+  type: 'front' | 'back' | 'icon'
+): Promise<string> {
+  const maxDim = type === 'front' ? 1400 : type === 'back' ? 1200 : 800;
+  const quality = type === 'icon' ? 0.9 : 0.88;
+  const dataUrl = await compressAndResizeImage(file, maxDim, quality);
+
+  // 1. Attempt upload to server to get permanent short URL path
+  try {
+    const res = await fetch('/api/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageType: type, dataUrl }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) {
+        const finalUrl = data.url;
+        if (type === 'front') {
+          setStoredCardImage(finalUrl, false);
+          setCardImageEnabled(true, false);
+        } else if (type === 'back') {
+          setStoredCardBackImage(finalUrl, false);
+        } else {
+          setStoredAppIcon(finalUrl, false);
+        }
+        return finalUrl;
+      }
+    }
+  } catch (err) {
+    console.warn('Upload to /api/upload-image failed, falling back to local storage and sync:', err);
+  }
+
+  // 2. Fallback to client storage + sync
+  if (type === 'front') {
+    setStoredCardImage(dataUrl, true);
+    setCardImageEnabled(true, true);
+  } else if (type === 'back') {
+    setStoredCardBackImage(dataUrl, true);
+  } else {
+    setStoredAppIcon(dataUrl, true);
+  }
+  return dataUrl;
+}
+
 export function getStoredCardImage(): string {
+  if (memoryCardImage && memoryCardImage.trim()) return memoryCardImage;
   try {
     const saved = localStorage.getItem('odoru_card_image');
-    if (saved && saved.trim()) return saved;
+    if (saved && saved.trim()) {
+      memoryCardImage = saved;
+      return saved;
+    }
   } catch {
     // fallback
   }
@@ -105,9 +176,14 @@ export function getStoredCardImage(): string {
 }
 
 export function isCardImageEnabled(): boolean {
+  if (memoryCardImageEnabled !== null) return memoryCardImageEnabled;
   try {
     const saved = localStorage.getItem('odoru_card_image_enabled');
-    if (saved !== null) return saved === 'true';
+    if (saved !== null) {
+      const val = saved === 'true';
+      memoryCardImageEnabled = val;
+      return val;
+    }
   } catch {
     // fallback
   }
@@ -115,38 +191,59 @@ export function isCardImageEnabled(): boolean {
 }
 
 export function setStoredCardImage(url: string, syncToServer = true) {
+  memoryCardImage = url;
+  const now = Date.now();
   try {
     localStorage.setItem('odoru_card_image', url);
   } catch (err) {
     console.warn('localStorage setItem failed (odoru_card_image):', err);
   }
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
   window.dispatchEvent(new Event('odoru_card_image_updated'));
   if (syncToServer) {
-    syncCustomImagesToServer({ frontImage: url });
+    syncCustomImagesToServer({ frontImage: url, updatedAt: now });
   }
 }
 
 export function setCardImageEnabled(enabled: boolean, syncToServer = true) {
+  memoryCardImageEnabled = enabled;
+  const now = Date.now();
   try {
     localStorage.setItem('odoru_card_image_enabled', enabled ? 'true' : 'false');
   } catch (err) {
     console.warn('localStorage setItem failed (odoru_card_image_enabled):', err);
   }
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
   window.dispatchEvent(new Event('odoru_card_image_updated'));
   if (syncToServer) {
-    syncCustomImagesToServer({ isEnabled: enabled });
+    syncCustomImagesToServer({ isEnabled: enabled, updatedAt: now });
   }
 }
 
 export function resetCardImageToDefault() {
-  setStoredCardImage(DEFAULT_CARD_IMAGE, true);
-  setCardImageEnabled(true, true);
+  const now = Date.now();
+  memoryCardImage = DEFAULT_CARD_IMAGE;
+  memoryCardImageEnabled = true;
+  setStoredCardImage(DEFAULT_CARD_IMAGE, false);
+  setCardImageEnabled(true, false);
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
+  syncCustomImagesToServer({ frontImage: DEFAULT_CARD_IMAGE, isEnabled: true, updatedAt: now });
 }
 
 export function getStoredCardBackImage(): string {
+  if (memoryCardBackImage && memoryCardBackImage.trim()) return memoryCardBackImage;
   try {
     const saved = localStorage.getItem('odoru_card_back_image');
-    if (saved && saved.trim()) return saved;
+    if (saved && saved.trim()) {
+      memoryCardBackImage = saved;
+      return saved;
+    }
   } catch {
     // fallback
   }
@@ -154,19 +251,30 @@ export function getStoredCardBackImage(): string {
 }
 
 export function setStoredCardBackImage(url: string, syncToServer = true) {
+  memoryCardBackImage = url;
+  const now = Date.now();
   try {
     localStorage.setItem('odoru_card_back_image', url);
   } catch (err) {
     console.warn('localStorage setItem failed (odoru_card_back_image):', err);
   }
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
   window.dispatchEvent(new Event('odoru_card_image_updated'));
   if (syncToServer) {
-    syncCustomImagesToServer({ backImage: url });
+    syncCustomImagesToServer({ backImage: url, updatedAt: now });
   }
 }
 
 export function resetCardBackImageToDefault() {
-  setStoredCardBackImage(DEFAULT_CARD_BACK_IMAGE, true);
+  const now = Date.now();
+  memoryCardBackImage = DEFAULT_CARD_BACK_IMAGE;
+  setStoredCardBackImage(DEFAULT_CARD_BACK_IMAGE, false);
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
+  syncCustomImagesToServer({ backImage: DEFAULT_CARD_BACK_IMAGE, updatedAt: now });
 }
 
 export function updateFavicon(url: string) {
@@ -221,9 +329,13 @@ export function updateFavicon(url: string) {
 }
 
 export function getStoredAppIcon(): string {
+  if (memoryAppIcon && memoryAppIcon.trim()) return memoryAppIcon;
   try {
     const saved = localStorage.getItem('odoru_app_icon');
-    if (saved && saved.trim()) return saved;
+    if (saved && saved.trim()) {
+      memoryAppIcon = saved;
+      return saved;
+    }
   } catch {
     // fallback
   }
@@ -231,20 +343,31 @@ export function getStoredAppIcon(): string {
 }
 
 export function setStoredAppIcon(url: string, syncToServer = true) {
+  memoryAppIcon = url;
+  const now = Date.now();
   try {
     localStorage.setItem('odoru_app_icon', url);
   } catch (err) {
     console.warn('localStorage setItem failed (odoru_app_icon):', err);
   }
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
   updateFavicon(url);
   window.dispatchEvent(new Event('odoru_card_image_updated'));
   if (syncToServer) {
-    syncCustomImagesToServer({ appIcon: url });
+    syncCustomImagesToServer({ appIcon: url, updatedAt: now });
   }
 }
 
 export function resetAppIconToDefault() {
-  setStoredAppIcon(DEFAULT_APP_ICON, true);
+  const now = Date.now();
+  memoryAppIcon = DEFAULT_APP_ICON;
+  setStoredAppIcon(DEFAULT_APP_ICON, false);
+  try {
+    localStorage.setItem('odoru_custom_images_updated_at', now.toString());
+  } catch {}
+  syncCustomImagesToServer({ appIcon: DEFAULT_APP_ICON, updatedAt: now });
 }
 
 /**
@@ -263,43 +386,97 @@ export async function syncCustomImagesToServer(changes: Partial<CustomImagesConf
 }
 
 /**
- * Applies custom images received from remote server
+ * Applies custom images received from remote server, ensuring that a default server
+ * never overwrites a user's locally configured custom images.
  */
-export function applyRemoteCustomImages(images: Partial<CustomImagesConfig>) {
+export function applyRemoteCustomImages(remoteImages: Partial<CustomImagesConfig>) {
+  if (!remoteImages) return;
+
+  const localFront = memoryCardImage || localStorage.getItem('odoru_card_image');
+  const localBack = memoryCardBackImage || localStorage.getItem('odoru_card_back_image');
+  const localIcon = memoryAppIcon || localStorage.getItem('odoru_app_icon');
+  const localTimeStr = localStorage.getItem('odoru_custom_images_updated_at');
+  const localTime = localTimeStr ? parseInt(localTimeStr, 10) : 0;
+
+  const hasLocalCustom =
+    (localFront && localFront !== DEFAULT_CARD_IMAGE) ||
+    (localBack && localBack !== DEFAULT_CARD_BACK_IMAGE) ||
+    (localIcon && localIcon !== DEFAULT_APP_ICON);
+
+  const remoteTime = remoteImages.updatedAt || 0;
+
+  // PROTECTION: If client has custom images, and server only has default (updatedAt === 0),
+  // NEVER overwrite client! Push client custom images to server instead.
+  if (hasLocalCustom && remoteTime === 0) {
+    syncCustomImagesToServer({
+      frontImage: localFront || remoteImages.frontImage,
+      backImage: localBack || remoteImages.backImage,
+      appIcon: localIcon || remoteImages.appIcon,
+      isEnabled: isCardImageEnabled(),
+      updatedAt: localTime > 0 ? localTime : Date.now(),
+    });
+    return;
+  }
+
+  // If client has custom images that are newer than server, keep local and sync to server
+  if (hasLocalCustom && localTime > remoteTime) {
+    syncCustomImagesToServer({
+      frontImage: localFront || remoteImages.frontImage,
+      backImage: localBack || remoteImages.backImage,
+      appIcon: localIcon || remoteImages.appIcon,
+      isEnabled: isCardImageEnabled(),
+      updatedAt: localTime,
+    });
+    return;
+  }
+
+  // Otherwise, apply remoteImages
   let changed = false;
 
-  if (images.frontImage) {
+  if (remoteImages.frontImage) {
+    memoryCardImage = remoteImages.frontImage;
     try {
-      localStorage.setItem('odoru_card_image', images.frontImage);
-      changed = true;
+      localStorage.setItem('odoru_card_image', remoteImages.frontImage);
     } catch {
       // ignore
     }
+    changed = true;
   }
 
-  if (images.backImage) {
+  if (remoteImages.backImage) {
+    memoryCardBackImage = remoteImages.backImage;
     try {
-      localStorage.setItem('odoru_card_back_image', images.backImage);
-      changed = true;
+      localStorage.setItem('odoru_card_back_image', remoteImages.backImage);
     } catch {
       // ignore
     }
+    changed = true;
   }
 
-  if (images.appIcon) {
+  if (remoteImages.appIcon) {
+    memoryAppIcon = remoteImages.appIcon;
     try {
-      localStorage.setItem('odoru_app_icon', images.appIcon);
-      updateFavicon(images.appIcon);
-      changed = true;
+      localStorage.setItem('odoru_app_icon', remoteImages.appIcon);
     } catch {
       // ignore
     }
+    updateFavicon(remoteImages.appIcon);
+    changed = true;
   }
 
-  if (typeof images.isEnabled === 'boolean') {
+  if (typeof remoteImages.isEnabled === 'boolean') {
+    memoryCardImageEnabled = remoteImages.isEnabled;
     try {
-      localStorage.setItem('odoru_card_image_enabled', images.isEnabled ? 'true' : 'false');
-      changed = true;
+      localStorage.setItem('odoru_card_image_enabled', remoteImages.isEnabled ? 'true' : 'false');
+    } catch {
+      // ignore
+    }
+    changed = true;
+  }
+
+  if (remoteTime > 0) {
+    try {
+      localStorage.setItem('odoru_custom_images_updated_at', remoteTime.toString());
     } catch {
       // ignore
     }
@@ -311,34 +488,43 @@ export function applyRemoteCustomImages(images: Partial<CustomImagesConfig>) {
 }
 
 /**
- * Fetches latest custom images from server on startup (vital for smartphones joining via URL)
+ * Fetches latest custom images from server on startup.
+ * Guarantees that local custom images are protected and propagated to server.
  */
 export async function fetchRemoteCustomImages(): Promise<void> {
+  const localFront = memoryCardImage || localStorage.getItem('odoru_card_image');
+  const localBack = memoryCardBackImage || localStorage.getItem('odoru_card_back_image');
+  const localIcon = memoryAppIcon || localStorage.getItem('odoru_app_icon');
+  const localTimeStr = localStorage.getItem('odoru_custom_images_updated_at');
+  const localTime = localTimeStr ? parseInt(localTimeStr, 10) : 0;
+
+  const hasLocalCustom =
+    (localFront && localFront !== DEFAULT_CARD_IMAGE) ||
+    (localBack && localBack !== DEFAULT_CARD_BACK_IMAGE) ||
+    (localIcon && localIcon !== DEFAULT_APP_ICON);
+
   try {
     const res = await fetch('/api/custom-images');
     if (!res.ok) return;
-    const data: CustomImagesConfig = await res.json();
-    if (data) {
-      applyRemoteCustomImages(data);
+    const remoteData: CustomImagesConfig = await res.json();
+    if (remoteData) {
+      const remoteTime = remoteData.updatedAt || 0;
 
-      // If client has custom images locally that differ from server default, push local to server
-      const localFront = localStorage.getItem('odoru_card_image');
-      const localBack = localStorage.getItem('odoru_card_back_image');
-      const localIcon = localStorage.getItem('odoru_app_icon');
-      
-      const shouldPushLocal =
-        (localFront && localFront !== DEFAULT_CARD_IMAGE && data.frontImage === DEFAULT_CARD_IMAGE) ||
-        (localBack && localBack !== DEFAULT_CARD_BACK_IMAGE && data.backImage === DEFAULT_CARD_BACK_IMAGE) ||
-        (localIcon && localIcon !== DEFAULT_APP_ICON && data.appIcon === DEFAULT_APP_ICON);
-
-      if (shouldPushLocal) {
-        syncCustomImagesToServer({
-          frontImage: localFront || data.frontImage,
-          backImage: localBack || data.backImage,
-          appIcon: localIcon || data.appIcon,
+      // If client has custom images and remote is default or older: push local to server!
+      if (hasLocalCustom && (remoteTime === 0 || localTime > remoteTime)) {
+        const sendTime = localTime > 0 ? localTime : Date.now();
+        await syncCustomImagesToServer({
+          frontImage: localFront || remoteData.frontImage,
+          backImage: localBack || remoteData.backImage,
+          appIcon: localIcon || remoteData.appIcon,
           isEnabled: isCardImageEnabled(),
+          updatedAt: sendTime,
         });
+        return;
       }
+
+      // Otherwise apply remote custom images (e.g. on new smartphone opening link)
+      applyRemoteCustomImages(remoteData);
     }
   } catch (err) {
     console.warn('Failed to fetch remote custom images:', err);

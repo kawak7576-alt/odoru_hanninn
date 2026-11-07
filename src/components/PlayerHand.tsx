@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, ClientGameState } from '../types/game';
 import { CardView } from './CardView';
 import { CardDetailModal } from './CardDetailModal';
 import { Play, AlertCircle, HelpCircle, History, Volume2, VolumeX, MessageSquare, Sparkles, ChevronRight } from 'lucide-react';
 import { sounds } from '../utils/sound';
+import { getStoredCardBackImage, DEFAULT_CARD_BACK_IMAGE } from '../utils/cardImageSetting';
 
 interface PlayerHandProps {
   gameState: ClientGameState;
@@ -32,6 +33,15 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
 
   // Selected card for modal inspection and play flow
   const [modalCard, setModalCard] = useState<Card | null>(null);
+  const [cardBackSrc, setCardBackSrc] = useState<string>(getStoredCardBackImage);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setCardBackSrc(getStoredCardBackImage());
+    };
+    window.addEventListener('odoru_card_image_updated', handleUpdate);
+    return () => window.removeEventListener('odoru_card_image_updated', handleUpdate);
+  }, []);
 
   // Validate if a card can be played
   const getPlayableStatus = (card: Card): { canPlay: boolean; reason?: string } => {
@@ -130,8 +140,18 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
       <div className="w-full rounded-3xl bg-gradient-to-t from-slate-950 via-slate-900 to-slate-950/80 border-2 border-white/15 p-2.5 sm:p-3 shadow-2xl relative">
         {/* Hand Header info */}
         <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-white/10 text-xs font-bold text-stone-300">
-          <div className="flex items-center gap-1.5">
-            <span className="text-amber-400">🎴</span>
+          <div className="flex items-center gap-2">
+            <div className="w-5 sm:w-5.5 h-7 sm:h-7.5 rounded-[4px] overflow-hidden border border-amber-400/80 shadow-md shrink-0 bg-slate-900 flex items-center justify-center transition-transform hover:scale-105">
+              <img
+                src={cardBackSrc}
+                alt="手札カード裏面"
+                className="w-full h-full object-fill select-none pointer-events-none"
+                draggable={false}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = DEFAULT_CARD_BACK_IMAGE;
+                }}
+              />
+            </div>
             <span className="font-black text-white text-xs sm:text-sm">自分の手札</span>
             <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black border border-amber-400/40">
               {myHand.length}枚

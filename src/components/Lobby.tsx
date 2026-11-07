@@ -15,6 +15,8 @@ import {
   DoorOpen,
   Share2,
   Image as ImageIcon,
+  Trophy,
+  Zap,
 } from 'lucide-react';
 import { DEFAULT_APP_ICON, getStoredAppIcon } from '../utils/cardImageSetting';
 
@@ -38,6 +40,7 @@ interface LobbyProps {
   onDownloadZip: () => void;
   isDownloadingZip?: boolean;
   onKickDisconnected?: (targetPlayerId: string) => void;
+  onSetGameMode?: (mode: 'single' | 'match5') => void;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -60,6 +63,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onDownloadZip,
   isDownloadingZip = false,
   onKickDisconnected,
+  onSetGameMode,
 }) => {
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(playerName);
@@ -79,6 +83,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const connectedPlayers = players.filter((p) => p.isBot || p.connected);
   const disconnectedCount = players.filter((p) => !p.connected && !p.isBot).length;
   const canStart = connectedPlayers.length >= 3 && connectedPlayers.length <= 8;
+  const gameMode = gameState?.gameMode || 'single';
 
   const handleSaveName = () => {
     if (tempName.trim()) {
@@ -340,6 +345,96 @@ export const Lobby: React.FC<LobbyProps> = ({
         </div>
       )}
 
+      {/* Game Mode Selector (Right above Start Game button) */}
+      <div className="mb-3.5 p-3 rounded-2xl bg-slate-950/80 border-2 border-amber-400/40 shadow-inner">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-black text-amber-300 flex items-center gap-1.5">
+            <Trophy className="w-3.5 h-3.5 text-amber-400" />
+            対戦モード切り替え
+          </span>
+          <span className="text-[10px] text-stone-400 font-bold">
+            {isHost ? 'ホストが設定可能' : 'ホストが設定中'}
+          </span>
+        </div>
+
+        {/* Mode Toggle Switch Buttons */}
+        <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-white/10">
+          <button
+            type="button"
+            disabled={!isHost}
+            onClick={() => onSetGameMode && onSetGameMode('single')}
+            className={`py-2 px-2.5 rounded-lg text-xs font-black transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+              gameMode === 'single'
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-md font-black'
+                : 'text-stone-400 hover:text-white hover:bg-white/5 disabled:opacity-60 disabled:cursor-not-allowed'
+            }`}
+          >
+            <div className="flex items-center gap-1">
+              <Zap className={`w-3.5 h-3.5 ${gameMode === 'single' ? 'text-slate-950 fill-slate-950' : 'text-amber-400'}`} />
+              <span>通常モード</span>
+            </div>
+            <span className={`text-[10px] font-bold ${gameMode === 'single' ? 'text-slate-950/80' : 'text-stone-500'}`}>
+              1戦勝負（デフォルト）
+            </span>
+          </button>
+
+          <button
+            type="button"
+            disabled={!isHost}
+            onClick={() => onSetGameMode && onSetGameMode('match5')}
+            className={`py-2 px-2.5 rounded-lg text-xs font-black transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+              gameMode === 'match5'
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-md font-black'
+                : 'text-stone-400 hover:text-white hover:bg-white/5 disabled:opacity-60 disabled:cursor-not-allowed'
+            }`}
+          >
+            <div className="flex items-center gap-1">
+              <Trophy className={`w-3.5 h-3.5 ${gameMode === 'match5' ? 'text-slate-950' : 'text-amber-400'}`} />
+              <span>5ゲームマッチ</span>
+            </div>
+            <span className={`text-[10px] font-bold ${gameMode === 'match5' ? 'text-slate-900/80' : 'text-stone-500'}`}>
+              全5戦の得点制バトル
+            </span>
+          </button>
+        </div>
+
+        {/* Mode Rules Explanation Badge */}
+        {gameMode === 'match5' ? (
+          <div className="mt-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-400/40 text-[11px] text-amber-200 animate-fade-in space-y-1.5">
+            <div className="font-black text-amber-300 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <span>🎯</span>
+                <span>5ゲームマッチ 得点ルール</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.2 bg-amber-400/20 rounded text-amber-300 font-bold border border-amber-400/30">
+                全5戦合計Pt
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-center font-bold">
+              <div className="p-1 rounded-lg bg-black/40 border border-sky-400/30">
+                <div className="text-[10px] text-sky-300">🔍 探偵的中</div>
+                <div className="text-xs font-black text-white">+1 Pt</div>
+              </div>
+              <div className="p-1 rounded-lg bg-black/40 border border-rose-400/30">
+                <div className="text-[10px] text-rose-300">🎭 犯人逃亡</div>
+                <div className="text-xs font-black text-white">+2 Pt</div>
+              </div>
+              <div className="p-1 rounded-lg bg-black/40 border border-amber-400/30">
+                <div className="text-[10px] text-amber-300">🐕 いぬ的中</div>
+                <div className="text-xs font-black text-white">+3 Pt</div>
+              </div>
+            </div>
+            <p className="text-[10px] text-stone-300 text-center leading-tight">
+              全5戦を戦い抜いてポイントを集め、最終リザルトで総合順位を競います！
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 text-[10px] text-stone-400 text-center">
+            ※ 1ゲーム決着後、結果画面からすぐにロビーへ戻る通常の対戦モードです
+          </p>
+        )}
+      </div>
+
       {/* Start Game Action */}
       <div className="space-y-2.5">
         {isHost ? (
@@ -355,7 +450,7 @@ export const Lobby: React.FC<LobbyProps> = ({
             <Play className="w-4 h-4 fill-slate-950" />
             <span>
               {canStart
-                ? 'ゲームを開始する！'
+                ? (gameMode === 'match5' ? '5ゲームマッチを開始する！（第1戦へ）' : 'ゲームを開始する！')
                 : disconnectedCount > 0 && connectedPlayers.length < 3
                 ? `あと${Math.max(0, 3 - connectedPlayers.length)}人必要です（切断中のプレイヤーがいます）`
                 : `あと${Math.max(0, 3 - connectedPlayers.length)}人必要です（3〜8人対戦）`}

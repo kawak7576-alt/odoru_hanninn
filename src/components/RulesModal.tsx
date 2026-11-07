@@ -120,7 +120,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
                       <div
                         className="w-14 sm:w-16 h-20 sm:h-22 rounded-xl overflow-hidden shadow-lg border-2 border-amber-500/40 shrink-0 relative bg-slate-900 flex flex-col justify-end p-1 transition-transform hover:scale-105"
                         style={{
-                          backgroundImage: `url(${cardImageSrc})`,
+                          backgroundImage: `url("${cardImageSrc}")`,
                           backgroundSize: '400% 300%',
                           backgroundPosition: `${posX}% ${posY}%`,
                           backgroundRepeat: 'no-repeat',

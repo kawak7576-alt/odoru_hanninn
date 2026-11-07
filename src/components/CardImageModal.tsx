@@ -15,6 +15,7 @@ import {
   resetCardBackImageToDefault,
   resetAppIconToDefault,
   compressAndResizeImage,
+  uploadCustomImage,
 } from '../utils/cardImageSetting';
 import { X, Upload, RotateCcw, Check, Eye } from 'lucide-react';
 import { sounds } from '../utils/sound';
@@ -62,18 +63,18 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     }
 
     try {
-      setStatusMessage('画像を最適化して同期中...');
-      const dataUrl = await compressAndResizeImage(file, 1600, 0.88);
-      setStoredCardImage(dataUrl, true);
-      setCardImageEnabled(true, true);
-      setCurrentFrontImage(dataUrl);
+      setStatusMessage('表面画像を最適化してサーバーへ保存・同期中...');
+      const savedUrl = await uploadCustomImage(file, 'front');
+      setCurrentFrontImage(savedUrl);
       setIsEnabled(true);
       sounds.playCard();
-      setStatusMessage('表面のカスタム画像を適用しました！（スマホ・全デバイスへ自動同期）');
+      setStatusMessage('表面のカスタム画像を適用しました！（全デバイスへ自動同期）');
       setTimeout(() => setStatusMessage(''), 3500);
     } catch (err) {
       console.error(err);
       alert('画像の処理に失敗しました。');
+    } finally {
+      if (frontFileInputRef.current) frontFileInputRef.current.value = '';
     }
   };
 
@@ -87,16 +88,17 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     }
 
     try {
-      setStatusMessage('画像を最適化して同期中...');
-      const dataUrl = await compressAndResizeImage(file, 1200, 0.88);
-      setStoredCardBackImage(dataUrl, true);
-      setCurrentBackImage(dataUrl);
+      setStatusMessage('裏面画像を最適化してサーバーへ保存・同期中...');
+      const savedUrl = await uploadCustomImage(file, 'back');
+      setCurrentBackImage(savedUrl);
       sounds.playCard();
-      setStatusMessage('裏面のカスタム画像を適用しました！（スマホ・全デバイスへ自動同期）');
+      setStatusMessage('裏面のカスタム画像を適用しました！（全デバイスへ自動同期）');
       setTimeout(() => setStatusMessage(''), 3500);
     } catch (err) {
       console.error(err);
       alert('画像の処理に失敗しました。');
+    } finally {
+      if (backFileInputRef.current) backFileInputRef.current.value = '';
     }
   };
 
@@ -127,16 +129,17 @@ export const CardImageModal: React.FC<CardImageModalProps> = ({ isOpen, onClose 
     }
 
     try {
-      setStatusMessage('アイコンを最適化して同期中...');
-      const dataUrl = await compressAndResizeImage(file, 800, 0.9);
-      setStoredAppIcon(dataUrl, true);
-      setCurrentAppIcon(dataUrl);
+      setStatusMessage('アイコンを最適化してサーバーへ保存・同期中...');
+      const savedUrl = await uploadCustomImage(file, 'icon');
+      setCurrentAppIcon(savedUrl);
       sounds.playCard();
       setStatusMessage('アプリアイコン・ヘッダーアイコンを変更しました！（全デバイス同期）');
       setTimeout(() => setStatusMessage(''), 3500);
     } catch (err) {
       console.error(err);
       alert('アイコンの処理に失敗しました。');
+    } finally {
+      if (iconFileInputRef.current) iconFileInputRef.current.value = '';
     }
   };
 

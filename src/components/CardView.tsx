@@ -111,7 +111,7 @@ export const CardView: React.FC<CardViewProps> = ({
             : ''
         } ${className}`}
         style={{
-          backgroundImage: `url(${cardImageSrc})`,
+          backgroundImage: `url("${cardImageSrc}")`,
           backgroundSize: '400% 300%',
           backgroundPosition: `${posX}% ${posY}%`,
           backgroundRepeat: 'no-repeat',

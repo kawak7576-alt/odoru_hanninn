@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { CardMovementEvent, PlayerPublic } from '../types/game';
 import { DEFAULT_CARD_BACK_IMAGE } from '../utils/cardImageSetting';
+import { CardThumbnail } from './CardThumbnail';
 
 interface Point {
   x: number;
@@ -228,12 +229,11 @@ export const TableMovementArrows: React.FC<TableMovementArrowsProps> = ({
 
         {/* Central Trade Badge */}
         <div
-          className="absolute -translate-x-1/2 -translate-y-1/2 bg-slate-950/70 backdrop-blur-md border-2 border-amber-400/80 rounded-full px-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap"
-          style={{ left: `${mx}%`, top: `${my}%` }}
+          className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 bg-slate-950/85 backdrop-blur-md border-2 border-amber-400/80 rounded-full pl-2 pr-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap max-w-[92%]"
         >
-          <span className="text-sm">🔄</span>
+          <CardThumbnail cardType="trade" size="xs" alt="取り引きカード" />
           <span>取り引き</span>
-          <span className="text-white text-[11px] font-bold">
+          <span className="text-white text-[11px] font-bold truncate max-w-[150px] sm:max-w-[220px]">
             {p1.fromName} ⇆ {p1.toName}
           </span>
         </div>
@@ -305,17 +305,16 @@ export const TableMovementArrows: React.FC<TableMovementArrowsProps> = ({
           />
         </div>
 
-        {/* Visual Badge: 手札 ➔ 場 */}
+        {/* Visual Badge: 手札 ➔ 場 (画面端での見切れを防ぐため中央付近に表示) */}
         <div
-          className="absolute -translate-x-1/2 -translate-y-1/2 bg-slate-950/70 backdrop-blur-md border-2 border-amber-400/80 rounded-full px-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap"
-          style={{ left: `${mx}%`, top: `${Math.min(my, 50)}%` }}
+          className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 bg-slate-950/85 backdrop-blur-md border-2 border-amber-400/80 rounded-full pl-2 pr-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap max-w-[92%]"
         >
-          <span className="text-sm">🎴</span>
-          <span className="text-yellow-300">
+          <CardThumbnail isBack size="xs" alt="カード裏面" />
+          <span className="text-yellow-300 truncate max-w-[140px] sm:max-w-[200px]">
             {item.fromName === 'あなた' ? '手札' : `${item.fromName}の手札`} ➔ 場
           </span>
           {item.cardName && (
-            <span className="px-1.5 py-0.2 bg-emerald-950/80 text-emerald-300 border border-emerald-400/50 rounded text-[10px]">
+            <span className="px-1.5 py-0.2 bg-emerald-950/80 text-emerald-300 border border-emerald-400/50 rounded text-[10px] shrink-0">
               「{item.cardName}」
             </span>
           )}
@@ -418,9 +417,13 @@ export const TableMovementArrows: React.FC<TableMovementArrowsProps> = ({
 
         {/* Central Rotating Effect Badge */}
         <div
-          className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-950/70 backdrop-blur-md border-2 ${badgeBorder} rounded-full px-3.5 py-1.5 shadow-2xl flex items-center gap-1.5 text-xs font-black z-40 animate-bounce-short whitespace-nowrap`}
+          className={`absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-950/80 backdrop-blur-md border-2 ${badgeBorder} rounded-full pl-2 pr-3.5 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black z-40 animate-bounce-short whitespace-nowrap`}
         >
-          <span className="text-sm">{isRumor ? '📢' : '🔄'}</span>
+          <CardThumbnail
+            cardType={isRumor ? 'rumor' : 'info_manipulation'}
+            size="xs"
+            alt={isRumor ? 'うわさカード' : '情報操作カード'}
+          />
           <span>{label}</span>
         </div>
       </div>
@@ -490,13 +493,12 @@ export const TableMovementArrows: React.FC<TableMovementArrowsProps> = ({
 
         {/* Central Badge */}
         <div
-          className="absolute -translate-x-1/2 -translate-y-1/2 bg-slate-950/70 backdrop-blur-md border-2 border-amber-500/80 rounded-full px-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap"
-          style={{ left: `${mx}%`, top: `${my}%` }}
+          className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 bg-slate-950/85 backdrop-blur-md border-2 border-amber-500/80 rounded-full pl-2 pr-3 py-1 shadow-2xl flex items-center gap-1.5 text-xs font-black text-amber-300 z-40 animate-bounce-short whitespace-nowrap max-w-[92%]"
         >
-          <span className="text-sm">🐕</span>
+          <CardThumbnail cardType="dog" size="xs" alt="いぬカード" />
           <span>いぬ：手札を嗅ぎ当てた！</span>
           {item.cardName && (
-            <span className="px-1.5 py-0.2 bg-amber-950/80 text-amber-200 border border-amber-400/50 rounded text-[10px]">
+            <span className="px-1.5 py-0.2 bg-amber-950/80 text-amber-200 border border-amber-400/50 rounded text-[10px] shrink-0">
               「{item.cardName}」
             </span>
           )}

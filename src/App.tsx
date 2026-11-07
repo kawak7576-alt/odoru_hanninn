@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Card, ClientGameState } from './types/game';
+import { Card, ClientGameState, GameMode } from './types/game';
 import { GameTable } from './components/GameTable';
 import { PlayerHand } from './components/PlayerHand';
 import { Lobby } from './components/Lobby';
@@ -455,6 +455,14 @@ export default function App() {
     sendWs({ type: 'RESTART_GAME' });
   };
 
+  const handleSetGameMode = (mode: GameMode) => {
+    sendWs({ type: 'SET_GAME_MODE', mode });
+  };
+
+  const handleNextSeriesGame = () => {
+    sendWs({ type: 'NEXT_SERIES_GAME' });
+  };
+
   const handleToggleSound = () => {
     const next = sounds.toggle();
     setSoundEnabled(next);
@@ -620,6 +628,7 @@ export default function App() {
               onDownloadZip={handleDownloadZip}
               isDownloadingZip={isDownloadingZip}
               onKickDisconnected={handleKickDisconnected}
+              onSetGameMode={handleSetGameMode}
             />
           </div>
         ) : (
@@ -677,8 +686,14 @@ export default function App() {
                 )}
               </div>
 
-              {/* 真ん中：第〇巡目 */}
-              <div className="shrink-0 px-2 flex justify-center">
+              {/* 真ん中：第〇戦（5マッチ時）＆第〇巡目 */}
+              <div className="shrink-0 px-2 flex items-center justify-center gap-1.5">
+                {gameState.gameMode === 'match5' && gameState.seriesState && (
+                  <div className="text-xs font-mono font-black text-yellow-300 bg-amber-950/90 px-2.5 py-0.5 rounded-full border border-yellow-400/60 shadow-sm flex items-center gap-1">
+                    <span>🏆</span>
+                    <span>第{gameState.seriesState.currentGame}/5戦</span>
+                  </div>
+                )}
                 <div className="text-xs font-mono font-black text-amber-300 bg-amber-950/80 px-3 py-0.5 rounded-full border border-amber-500/50 shadow-sm">
                   第{gameState.round}巡目
                 </div>
@@ -741,6 +756,10 @@ export default function App() {
           result={gameState.result}
           isHost={isHost}
           onRestart={handleRestartGame}
+          onNextGame={handleNextSeriesGame}
+          gameMode={gameState.gameMode}
+          seriesState={gameState.seriesState}
+          players={gameState.players}
           onInspectCard={(card) => handleInspectCard(card, '決着カード')}
         />
       )}

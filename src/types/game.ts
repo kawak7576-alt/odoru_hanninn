@@ -134,10 +134,38 @@ export interface MatchRecord {
   rounds: number;
 }
 
+export type GameMode = 'single' | 'match5';
+
+export interface SeriesPointAward {
+  playerId: string;
+  playerName: string;
+  points: number;
+  reason: string;
+}
+
+export interface SeriesGameRecord {
+  gameNumber: number; // 1 to 5
+  victoryType: VictoryType;
+  victoryReason: string;
+  winnerNames: string[];
+  pointsAwarded: SeriesPointAward[];
+}
+
+export interface SeriesState {
+  mode: GameMode;
+  currentGame: number; // 1 to 5
+  totalGames: number; // 5 for match5, 1 for single
+  scores: Record<string, number>; // playerId -> total cumulative points
+  history: SeriesGameRecord[];
+  isFinal: boolean;
+}
+
 // Client received view
 export interface ClientGameState {
   roomId: string;
   phase: GamePhase;
+  gameMode: GameMode;
+  seriesState?: SeriesState | null;
   incident: string;
   round: number;
   turnIndex: number;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, ClientGameState } from '../types/game';
 import { CardView } from './CardView';
 import { CardDetailModal } from './CardDetailModal';
+import { CardThumbnail } from './CardThumbnail';
 import { DEFAULT_INCIDENTS } from '../game/cardData';
 import { sounds } from '../utils/sound';
 import { Handshake, Search, ChevronRight } from 'lucide-react';
@@ -131,7 +132,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-amber-500/80 rounded-2xl max-w-md w-full p-5 text-center shadow-2xl animate-scale-up">
-          <div className="text-4xl mb-2">🚨</div>
+          <CardThumbnail cardType="first_discoverer" size="lg" className="mx-auto mb-2" alt="第一発見者カード" />
           <h2 className="text-lg font-black text-amber-300">あなたが「第一発見者」です！</h2>
           <p className="text-xs text-stone-300 mt-1 mb-4">
             今回起きた事件の概要を発表して、ゲームをスタートさせましょう。
@@ -189,7 +190,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-sky-500/80 rounded-2xl max-w-md w-full p-5 text-center shadow-2xl">
-          <div className="text-4xl mb-2">🔍</div>
+          <CardThumbnail cardType="detective" size="lg" className="mx-auto mb-2" alt="探偵カード" />
           <h2 className="text-lg font-black text-sky-300">探偵の推理！誰を疑いますか？</h2>
           <p className="text-xs text-stone-300 mt-1 mb-4">
             指名した相手が「犯人」を持ち、かつ「アリバイ」を持っていなければ即座に勝利！
@@ -245,7 +246,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
         <div className="relative my-auto bg-slate-900 border-2 border-orange-500/80 rounded-3xl max-w-lg w-full p-4 sm:p-5 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
           <div className="text-center mb-2">
-            <span className="text-3xl">🤝</span>
+            <CardThumbnail cardType="trade" size="lg" className="mx-auto mb-1.5" alt="取り引きカード" />
             <h2 className="text-lg font-black text-orange-300">秘密の取り引き</h2>
             <p className="text-xs text-stone-300 mt-0.5">
               相手を指名し、自分が渡すカードを1枚選択してください。
@@ -337,7 +338,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
         <div className="relative my-auto bg-slate-900 border-2 border-orange-500 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
-          <div className="text-3xl mb-1">🤝</div>
+          <CardThumbnail cardType="trade" size="lg" className="mx-auto mb-1.5" alt="取り引きカード" />
           <h2 className="text-lg font-black text-orange-300">取り引きの要請！</h2>
           <p className="text-xs text-stone-200 mt-1 mb-2">
             【{fromPlayerName}】から取り引きを申し込まれました。<br />
@@ -392,7 +393,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-cyan-500/80 rounded-2xl max-w-md w-full p-5 text-center shadow-2xl">
-          <div className="text-4xl mb-2">👁️</div>
+          <CardThumbnail cardType="witness" size="lg" className="mx-auto mb-2" alt="目撃者カード" />
           <h2 className="text-lg font-black text-cyan-300">目撃者の視線！誰の手札を見ますか？</h2>
           <p className="text-xs text-stone-300 mt-1 mb-4">
             指名した相手の手札すべてをあなただけが確認できます。
@@ -490,7 +491,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
         <div className="bg-slate-900 border-2 border-amber-600 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl flex flex-col max-h-[92vh] overflow-y-auto">
-          <div className="text-3xl mb-1">🐕</div>
+          <CardThumbnail cardType="dog" size="lg" className="mx-auto mb-1.5" alt="いぬカード" />
           <h2 className="text-lg font-black text-amber-300">いぬの鋭い嗅覚！</h2>
           <p className="text-xs text-stone-300 mt-1 mb-3">
             指名した相手の手札から1枚選び公開します。「犯人」なら即時勝利！（アリバイ無効）
@@ -571,7 +572,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-slate-900 border-2 border-teal-400 rounded-2xl max-w-md w-full p-5 text-center shadow-2xl animate-fade-in">
-          <div className="text-4xl mb-2">👦</div>
+          <CardThumbnail cardType="boy" size="lg" className="mx-auto mb-2" alt="少年カード" />
           <h2 className="text-lg font-black text-teal-300">少年の直感！</h2>
           <p className="text-xs text-stone-300 mt-1 mb-3">
             少年が耳元でこっそり犯人カードの持ち主を囁きました...
@@ -649,7 +650,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
         <div className="bg-slate-900 border-2 border-pink-500 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl flex flex-col max-h-[92vh] overflow-y-auto">
-          <div className="text-3xl mb-1">💬</div>
+          <CardThumbnail cardType="rumor" size="lg" className="mx-auto mb-1.5" alt="うわさカード" />
           <h2 className="text-lg font-black text-pink-300">【うわさ】の刻！</h2>
           <p className="text-xs text-stone-300 mt-1 mb-2">
             全員が一斉に右隣のプレイヤーの手札から1枚引きます。<br />
@@ -744,7 +745,7 @@ export const ActionModals: React.FC<ActionModalsProps> = ({
     return renderModal(
       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
         <div className="bg-slate-900 border-2 border-violet-500 rounded-3xl max-w-lg w-full p-4 sm:p-5 text-center shadow-2xl flex flex-col max-h-[92vh] overflow-y-auto">
-          <div className="text-3xl mb-1">🔄</div>
+          <CardThumbnail cardType="info_manipulation" size="lg" className="mx-auto mb-1.5" alt="情報操作カード" />
           <h2 className="text-lg font-black text-violet-300">【情報操作】の刻！</h2>
           <p className="text-xs text-stone-300 mt-1 mb-2">
             全員が一斉に左隣のプレイヤーへ手札を1枚渡します。<br />
