@@ -22,6 +22,10 @@ import {
   RumorState,
   TradeState,
   VictoryType,
+  GameMode,
+  SeriesPointAward,
+  SeriesGameRecord,
+  SeriesState,
 } from './src/types/game.js';
 import {
   CARD_DEFINITIONS,
@@ -53,6 +57,8 @@ interface InternalRoom {
   id: string;
   hostPlayerId: string;
   phase: GamePhase;
+  gameMode: GameMode;
+  seriesState?: SeriesState | null;
   players: PlayerPrivate[];
   deck: Card[];
   discardPile: Card[];
@@ -120,6 +126,8 @@ function getOrCreateRoom(roomId: string): InternalRoom {
       id: normId,
       hostPlayerId: '',
       phase: 'lobby',
+      gameMode: 'single',
+      seriesState: null,
       players: [],
       deck: [],
       discardPile: [],
@@ -360,6 +368,8 @@ function getSanitizedStateForPlayer(room: InternalRoom, playerId: string): Clien
   return {
     roomId: room.id,
     phase: room.phase,
+    gameMode: room.gameMode || 'single',
+    seriesState: room.seriesState || null,
     incident: room.incident,
     round: room.round,
     turnIndex: room.turnSeatIndex,
@@ -528,6 +538,55 @@ function finishGame(room: InternalRoom, victoryType: VictoryType, victoryReason:
 
   room.result = result;
   addLog(room, `【ゲーム終了】${victoryReason}`, 'victory');
+
+  // If in match5 mode, award points based on user specification:
+  // 探偵カードで犯人を当てて勝利: 1Pt
+  // 犯人を最後に出して勝ったら: 2Pt (犯人・共犯者)
+  // いぬカードで犯人を当てて勝ったら: 3Pt
+  if (room.gameMode === 'match5' && room.seriesState) {
+    const pointsAwarded: SeriesPointAward[] = [];
+    let pt = 0;
+    let reasonText = '';
+
+    if (victoryType === 'detective') {
+      pt = 1;
+      reasonText = '探偵カード的中 (+1Pt)';
+    } else if (victoryType === 'culprit') {
+      pt = 2;
+      reasonText = '犯人逃亡完全勝利 (+2Pt)';
+    } else if (victoryType === 'dog') {
+      pt = 3;
+      reasonText = 'いぬカード的中 (+3Pt)';
+    }
+
+    for (const w of winners) {
+      room.seriesState.scores[w.id] = (room.seriesState.scores[w.id] || 0) + pt;
+      pointsAwarded.push({
+        playerId: w.id,
+        playerName: w.name,
+        points: pt,
+        reason: reasonText,
+      });
+      addLog(
+        room,
+        `【5ゲームマッチ得点】${w.name}が「${reasonText}」で ${pt}Pt 獲得！（累計: ${room.seriesState.scores[w.id]}Pt）`,
+        'victory'
+      );
+    }
+
+    room.seriesState.history.push({
+      gameNumber: room.seriesState.currentGame,
+      victoryType,
+      victoryReason,
+      winnerNames: winners.map((w) => w.name),
+      pointsAwarded,
+    });
+
+    if (room.seriesState.currentGame >= 5) {
+      room.seriesState.isFinal = true;
+      addLog(room, '🏆 全5戦がすべて終了しました！最終リザルト発表です！', 'victory');
+    }
+  }
 
   const record: MatchRecord = {
     id: generateId('MATCH_'),
@@ -1290,6 +1349,7 @@ function resetRoomToLobby(room: InternalRoom) {
   room.turnsCompletedInRound = 0;
   room.accomplicePlayerIds.clear();
   room.result = null;
+  room.seriesState = null;
   room.latestPlayedCard = null;
   room.activeCardAction = null;
   room.tradeState = null;
@@ -1367,7 +1427,83 @@ function startGame(room: InternalRoom) {
   const startPlayer = room.players[room.turnSeatIndex];
   room.phase = 'first_discoverer_turn';
 
-  addLog(room, `==== ゲームが開始されました（${room.players.length}人対戦）====`, 'system');
+  if (room.gameMode === 'match5') {
+    const scores: Record<string, number> = {};
+    for (const p of room.players) {
+      scores[p.id] = 0;
+    }
+    room.seriesState = {
+      mode: 'match5',
+      currentGame: 1,
+      totalGames: 5,
+      scores,
+      history: [],
+      isFinal: false,
+    };
+    addLog(room, `==== 【5ゲームマッチ】第1戦が開始されました！（全5戦・得点制） ====`, 'system');
+  } else {
+    room.seriesState = null;
+    addLog(room, `==== ゲームが開始されました（${room.players.length}人対戦）====`, 'system');
+  }
+
+  addLog(
+    room,
+    `【第一発見者】${startPlayer.name}が第一発見者カードを持っています。事件を発表してください！`,
+    'alert'
+  );
+
+  broadcastRoom(room);
+}
+
+function startNextSeriesGame(room: InternalRoom) {
+  if (room.gameMode !== 'match5' || !room.seriesState) return;
+  if (room.seriesState.currentGame >= 5) return;
+
+  clearRoomBotTimer(room);
+  room.seriesState.currentGame++;
+
+  const deck = buildDeckForPlayerCount(room.players.length);
+  room.deck = deck;
+  room.discardPile = [];
+  room.latestPlayedCard = null;
+  room.latestMovement = null;
+  room.round = 1;
+  room.turnsCompletedInRound = 0;
+  room.accomplicePlayerIds.clear();
+  room.result = null;
+  room.activeCardAction = null;
+  room.witnessInfo = null;
+  room.boyNotifiedPlayerId = null;
+  room.revealedDogCard = null;
+  room.tradeState = null;
+  room.rumorState = null;
+  room.infoManipulationState = null;
+
+  for (const player of room.players) {
+    player.hand = [];
+    player.playedCards = [];
+    player.isAccomplice = false;
+    for (let i = 0; i < 4; i++) {
+      if (deck.length > 0) {
+        player.hand.push(deck.pop()!);
+      }
+    }
+  }
+
+  const firstDiscovererIndex = room.players.findIndex((p) =>
+    p.hand.some((c) => c.type === 'first_discoverer')
+  );
+
+  if (firstDiscovererIndex === -1) {
+    room.turnSeatIndex = 0;
+  } else {
+    room.turnSeatIndex = firstDiscovererIndex;
+  }
+
+  const startPlayer = room.players[room.turnSeatIndex];
+  room.phase = 'first_discoverer_turn';
+
+  addLog(room, `==== 【5ゲームマッチ】第${room.seriesState.currentGame}戦 開始（全5戦）====`, 'system');
   addLog(
     room,
     `【第一発見者】${startPlayer.name}が第一発見者カードを持っています。事件を発表してください！`,
@@ -1389,6 +1525,7 @@ interface CustomImagesConfig {
   backImage: string;
   appIcon: string;
   isEnabled: boolean;
+  updatedAt: number;
 }
 
 const CUSTOM_IMAGES_FILE = path.join(__dirname, 'custom_images_data.json');
@@ -1397,6 +1534,7 @@ const DEFAULT_CUSTOM_IMAGES: CustomImagesConfig = {
   backImage: '/assets/aistudio/card_back.png',
   appIcon: '/assets/aistudio/image_451e28c3.png',
   isEnabled: true,
+  updatedAt: 0,
 };
 
 let serverCustomImages: CustomImagesConfig = { ...DEFAULT_CUSTOM_IMAGES };
@@ -1411,13 +1549,72 @@ try {
   console.warn('Failed to load custom_images_data.json:', e);
 }
 
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+function processAndSaveCustomImage(dataOrUrl: string, prefix: string): string {
+  if (!dataOrUrl || typeof dataOrUrl !== 'string') return dataOrUrl;
+  const trimmed = dataOrUrl.trim();
+  if (!trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  try {
+    const matches = trimmed.match(/^data:image\/([a-zA-Z0-9\+\.]+);base64,(.+)$/);
+    if (!matches) return trimmed;
+
+    let ext = matches[1].toLowerCase();
+    if (ext === 'jpeg') ext = 'jpg';
+    if (ext !== 'png' && ext !== 'jpg' && ext !== 'webp') ext = 'png';
+
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Clean up previous uploaded files with this prefix
+    try {
+      const files = fs.readdirSync(UPLOADS_DIR);
+      for (const f of files) {
+        if (f.startsWith(`${prefix}_`)) {
+          fs.unlinkSync(path.join(UPLOADS_DIR, f));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const filename = `${prefix}_${Date.now()}.${ext}`;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    fs.writeFileSync(filePath, buffer);
+    return `/uploads/${filename}`;
+  } catch (err) {
+    console.error(`Failed to write custom image file for ${prefix}:`, err);
+    return trimmed;
+  }
+}
+
+// Convert existing data URLs if any to clean files on startup
+if (serverCustomImages.appIcon && serverCustomImages.appIcon.startsWith('data:image/')) {
+  serverCustomImages.appIcon = processAndSaveCustomImage(serverCustomImages.appIcon, 'app_icon');
+}
+if (serverCustomImages.frontImage && serverCustomImages.frontImage.startsWith('data:image/')) {
+  serverCustomImages.frontImage = processAndSaveCustomImage(serverCustomImages.frontImage, 'front');
+}
+if (serverCustomImages.backImage && serverCustomImages.backImage.startsWith('data:image/')) {
+  serverCustomImages.backImage = processAndSaveCustomImage(serverCustomImages.backImage, 'back');
+}
+
 function saveCustomImages() {
   try {
-    fs.writeFileSync(CUSTOM_IMAGES_FILE, JSON.stringify(serverCustomImages), 'utf-8');
+    fs.writeFileSync(CUSTOM_IMAGES_FILE, JSON.stringify(serverCustomImages, null, 2), 'utf-8');
   } catch (e) {
     console.warn('Failed to save custom_images_data.json:', e);
   }
 }
+
+// Ensure custom uploads are immediately served with cache headers
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 function broadcastCustomImages() {
   const msg = JSON.stringify({
@@ -1440,21 +1637,51 @@ app.get('/api/custom-images', (_req, res) => {
   res.json(serverCustomImages);
 });
 
+app.post('/api/upload-image', (req, res) => {
+  try {
+    const { imageType, dataUrl } = req.body || {};
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      return res.status(400).json({ error: 'dataUrl is required' });
+    }
+
+    const prefix = imageType === 'front' ? 'front' : imageType === 'back' ? 'back' : 'app_icon';
+    const savedUrl = processAndSaveCustomImage(dataUrl, prefix);
+
+    if (imageType === 'front') {
+      serverCustomImages.frontImage = savedUrl;
+      serverCustomImages.isEnabled = true;
+    } else if (imageType === 'back') {
+      serverCustomImages.backImage = savedUrl;
+    } else if (imageType === 'icon') {
+      serverCustomImages.appIcon = savedUrl;
+    }
+    serverCustomImages.updatedAt = Date.now();
+    saveCustomImages();
+    broadcastCustomImages();
+
+    res.json({ success: true, url: savedUrl, images: serverCustomImages });
+  } catch (err: any) {
+    console.error('Error in /api/upload-image:', err);
+    res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
+
 app.post('/api/custom-images', (req, res) => {
   try {
-    const { frontImage, backImage, appIcon, isEnabled } = req.body || {};
+    const { frontImage, backImage, appIcon, isEnabled, updatedAt } = req.body || {};
     if (typeof frontImage === 'string' && frontImage.trim()) {
-      serverCustomImages.frontImage = frontImage;
+      serverCustomImages.frontImage = processAndSaveCustomImage(frontImage.trim(), 'front');
     }
     if (typeof backImage === 'string' && backImage.trim()) {
-      serverCustomImages.backImage = backImage;
+      serverCustomImages.backImage = processAndSaveCustomImage(backImage.trim(), 'back');
     }
     if (typeof appIcon === 'string' && appIcon.trim()) {
-      serverCustomImages.appIcon = appIcon;
+      serverCustomImages.appIcon = processAndSaveCustomImage(appIcon.trim(), 'app_icon');
     }
     if (typeof isEnabled === 'boolean') {
       serverCustomImages.isEnabled = isEnabled;
     }
+    serverCustomImages.updatedAt = typeof updatedAt === 'number' && updatedAt > 0 ? updatedAt : Date.now();
     saveCustomImages();
     broadcastCustomImages();
     res.json({ success: true, images: serverCustomImages });
@@ -1826,6 +2053,34 @@ wss.on('connection', (rawWs: WebSocket) => {
           break;
         }
 
+        case 'SET_GAME_MODE': {
+          const { mode } = data;
+          if (room.phase === 'lobby') {
+            room.gameMode = mode === 'match5' ? 'match5' : 'single';
+            addLog(
+              room,
+              `ゲームモードが「${
+                room.gameMode === 'match5' ? '5ゲームマッチ（得点制）' : '通常モード（1戦勝負）'
+              }」に切り替えられました。`,
+              'system'
+            );
+            broadcastRoom(room);
+          }
+          break;
+        }
+
+        case 'NEXT_SERIES_GAME': {
+          if (
+            room.phase === 'game_over' &&
+            room.gameMode === 'match5' &&
+            room.seriesState &&
+            room.seriesState.currentGame < 5
+          ) {
+            startNextSeriesGame(room);
+          }
+          break;
+        }
+
         case 'START_GAME': {
           startGame(room);
           break;
@@ -1948,6 +2203,7 @@ wss.on('connection', (rawWs: WebSocket) => {
             if (typeof images.isEnabled === 'boolean') {
               serverCustomImages.isEnabled = images.isEnabled;
             }
+            serverCustomImages.updatedAt = typeof images.updatedAt === 'number' && images.updatedAt > 0 ? images.updatedAt : Date.now();
             saveCustomImages();
             broadcastCustomImages();
           }
