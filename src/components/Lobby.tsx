@@ -79,7 +79,8 @@ export const Lobby: React.FC<LobbyProps> = ({
 
   const players = gameState?.players || [];
   const myPlayer = players.find((p) => p.id === myPlayerId);
-  const isHost = myPlayer?.isHost ?? false;
+  const hasConnectedHumanHost = players.some((p) => p.isHost && !p.isBot && p.connected);
+  const isHost = (myPlayer?.isHost ?? false) || (!hasConnectedHumanHost && !myPlayer?.isBot && (myPlayer?.connected ?? true));
   const connectedPlayers = players.filter((p) => p.isBot || p.connected);
   const disconnectedCount = players.filter((p) => !p.connected && !p.isBot).length;
   const canStart = connectedPlayers.length >= 3 && connectedPlayers.length <= 8;
@@ -414,14 +415,17 @@ export const Lobby: React.FC<LobbyProps> = ({
               <div className="p-1 rounded-lg bg-black/40 border border-sky-400/30">
                 <div className="text-[10px] text-sky-300">🔍 探偵的中</div>
                 <div className="text-xs font-black text-white">+1 Pt</div>
+                <div className="text-[9px] text-rose-400">犯人・たくらみ -1Pt</div>
               </div>
               <div className="p-1 rounded-lg bg-black/40 border border-rose-400/30">
                 <div className="text-[10px] text-rose-300">🎭 犯人逃亡</div>
                 <div className="text-xs font-black text-white">+2 Pt</div>
+                <div className="text-[9px] text-emerald-400">たくらみ +1Pt</div>
               </div>
               <div className="p-1 rounded-lg bg-black/40 border border-amber-400/30">
                 <div className="text-[10px] text-amber-300">🐕 いぬ的中</div>
                 <div className="text-xs font-black text-white">+3 Pt</div>
+                <div className="text-[9px] text-rose-400">犯人・たくらみ -1Pt</div>
               </div>
             </div>
             <p className="text-[10px] text-stone-300 text-center leading-tight">

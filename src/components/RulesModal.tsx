@@ -4,6 +4,7 @@ import { CardType } from '../types/game';
 import { BookOpen, X, Shield, Search, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import {
   CARD_SPRITE_GRID,
+  DEFAULT_CARD_IMAGE,
   getStoredCardImage,
   isCardImageEnabled,
 } from '../utils/cardImageSetting';
@@ -18,6 +19,8 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
   const [activeTab, setActiveTab] = useState<'cards' | 'rules'>('cards');
   const [cardImageSrc, setCardImageSrc] = useState<string>(getStoredCardImage());
   const [useImage, setUseImage] = useState<boolean>(isCardImageEnabled());
+  const [activeFrontSrc, setActiveFrontSrc] = useState<string>(cardImageSrc);
+  const [imageError, setImageError] = useState<boolean>(false);
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -29,6 +32,32 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
       window.removeEventListener('odoru_card_image_updated', handleUpdate);
     };
   }, []);
+
+  // Pre-validate custom front image to avoid broken background
+  useEffect(() => {
+    setImageError(false);
+    if (!cardImageSrc) {
+      setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      setActiveFrontSrc(cardImageSrc);
+      setImageError(false);
+    };
+    img.onerror = () => {
+      if (cardImageSrc !== DEFAULT_CARD_IMAGE) {
+        setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+        const defImg = new Image();
+        defImg.onerror = () => setImageError(true);
+        defImg.src = DEFAULT_CARD_IMAGE;
+      } else {
+        setImageError(true);
+      }
+    };
+    img.src = cardImageSrc;
+  }, [cardImageSrc]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5">
@@ -116,11 +145,11 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose, soundEnabled = 
                     className="p-2.5 sm:p-3 rounded-2xl bg-slate-950 border border-white/10 hover:border-amber-500/40 transition flex gap-3 text-xs items-center shadow-md"
                   >
                     {/* Card Illustration */}
-                    {useImage && cardImageSrc ? (
+                    {useImage && activeFrontSrc && !imageError ? (
                       <div
                         className="w-14 sm:w-16 h-20 sm:h-22 rounded-xl overflow-hidden shadow-lg border-2 border-amber-500/40 shrink-0 relative bg-slate-900 flex flex-col justify-end p-1 transition-transform hover:scale-105"
                         style={{
-                          backgroundImage: `url("${cardImageSrc}")`,
+                          backgroundImage: `url("${activeFrontSrc}")`,
                           backgroundSize: '400% 300%',
                           backgroundPosition: `${posX}% ${posY}%`,
                           backgroundRepeat: 'no-repeat',

@@ -291,7 +291,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                   {isFinalGame ? '【最終総合順位・ポイント内訳】' : '【現在の総合順位表】'}
                 </span>
                 <span className="text-[10px] text-stone-400 font-bold">
-                  探偵: +1Pt / 犯人: +2Pt / いぬ: +3Pt
+                  探偵: +1Pt (犯人・たくらみ:-1) / 逃亡: +2Pt (たくらみ:+1) / いぬ: +3Pt
                 </span>
               </div>
 
@@ -333,8 +333,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
                       <div className="flex items-center gap-2 shrink-0">
                         {gainedThisRound && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-black text-emerald-300 animate-pulse">
-                            +{gainedThisRound.points}Pt
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-black border animate-pulse ${
+                            gainedThisRound.points >= 0
+                              ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                              : 'bg-rose-500/20 border-rose-400/40 text-rose-300'
+                          }`}>
+                            {gainedThisRound.points > 0 ? `+${gainedThisRound.points}` : gainedThisRound.points}Pt
                           </span>
                         )}
                         <span className="font-mono text-xs sm:text-sm font-black text-amber-300 bg-black/50 px-2.5 py-0.5 rounded-lg border border-amber-500/30">

@@ -5,6 +5,7 @@ import {
   getStoredCardImage,
   isCardImageEnabled,
   getStoredCardBackImage,
+  DEFAULT_CARD_IMAGE,
   DEFAULT_CARD_BACK_IMAGE,
   CARD_SPRITE_GRID,
 } from '../utils/cardImageSetting';
@@ -38,6 +39,8 @@ export const CardView: React.FC<CardViewProps> = ({
   const [cardImageSrc, setCardImageSrc] = useState<string>(getStoredCardImage());
   const [cardBackSrc, setCardBackSrc] = useState<string>(getStoredCardBackImage());
   const [useImage, setUseImage] = useState<boolean>(isCardImageEnabled());
+  const [activeFrontSrc, setActiveFrontSrc] = useState<string>(cardImageSrc);
+  const [imageError, setImageError] = useState<boolean>(false);
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -50,6 +53,33 @@ export const CardView: React.FC<CardViewProps> = ({
       window.removeEventListener('odoru_card_image_updated', handleUpdate);
     };
   }, []);
+
+  // Pre-validate image URL to prevent blank cards if custom image URL 404s
+  useEffect(() => {
+    setImageError(false);
+    if (!cardImageSrc) {
+      setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      setActiveFrontSrc(cardImageSrc);
+      setImageError(false);
+    };
+    img.onerror = () => {
+      console.warn(`Card image failed to load (${cardImageSrc}), falling back to ${DEFAULT_CARD_IMAGE}`);
+      if (cardImageSrc !== DEFAULT_CARD_IMAGE) {
+        setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+        const defImg = new Image();
+        defImg.onerror = () => setImageError(true);
+        defImg.src = DEFAULT_CARD_IMAGE;
+      } else {
+        setImageError(true);
+      }
+    };
+    img.src = cardImageSrc;
+  }, [cardImageSrc]);
 
   const sizeClasses = {
     sm: 'w-16 h-24 text-[10px] p-1.5 rounded-lg',
@@ -90,8 +120,8 @@ export const CardView: React.FC<CardViewProps> = ({
     );
   }
 
-  // 1. If custom card image is enabled, render the sprite sheet slice!
-  if (useImage && cardImageSrc) {
+  // 1. If custom card image is enabled and valid image loaded, render the sprite sheet slice!
+  if (useImage && activeFrontSrc && !imageError) {
     const sprite = CARD_SPRITE_GRID[card.type] || { col: 0, row: 0 };
     const posX = (sprite.col / 3) * 100;
     const posY = (sprite.row / 2) * 100;
@@ -111,7 +141,7 @@ export const CardView: React.FC<CardViewProps> = ({
             : ''
         } ${className}`}
         style={{
-          backgroundImage: `url("${cardImageSrc}")`,
+          backgroundImage: `url("${activeFrontSrc}")`,
           backgroundSize: '400% 300%',
           backgroundPosition: `${posX}% ${posY}%`,
           backgroundRepeat: 'no-repeat',

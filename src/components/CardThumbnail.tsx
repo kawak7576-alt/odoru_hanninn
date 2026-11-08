@@ -4,6 +4,7 @@ import {
   getStoredCardImage,
   getStoredCardBackImage,
   isCardImageEnabled,
+  DEFAULT_CARD_IMAGE,
   DEFAULT_CARD_BACK_IMAGE,
   CARD_SPRITE_GRID,
 } from '../utils/cardImageSetting';
@@ -26,6 +27,8 @@ export const CardThumbnail: React.FC<CardThumbnailProps> = ({
   const [cardImageSrc, setCardImageSrc] = useState<string>(getStoredCardImage());
   const [cardBackSrc, setCardBackSrc] = useState<string>(getStoredCardBackImage());
   const [useImage, setUseImage] = useState<boolean>(isCardImageEnabled());
+  const [activeFrontSrc, setActiveFrontSrc] = useState<string>(cardImageSrc);
+  const [imageError, setImageError] = useState<boolean>(false);
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -38,6 +41,32 @@ export const CardThumbnail: React.FC<CardThumbnailProps> = ({
       window.removeEventListener('odoru_card_image_updated', handleUpdate);
     };
   }, []);
+
+  // Pre-validate custom front image to avoid broken background
+  useEffect(() => {
+    setImageError(false);
+    if (!cardImageSrc) {
+      setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      setActiveFrontSrc(cardImageSrc);
+      setImageError(false);
+    };
+    img.onerror = () => {
+      if (cardImageSrc !== DEFAULT_CARD_IMAGE) {
+        setActiveFrontSrc(DEFAULT_CARD_IMAGE);
+        const defImg = new Image();
+        defImg.onerror = () => setImageError(true);
+        defImg.src = DEFAULT_CARD_IMAGE;
+      } else {
+        setImageError(true);
+      }
+    };
+    img.src = cardImageSrc;
+  }, [cardImageSrc]);
 
   const sizeClasses = {
     xs: 'w-4 h-5.5 rounded-[4px]',
@@ -66,7 +95,7 @@ export const CardThumbnail: React.FC<CardThumbnailProps> = ({
   }
 
   // 2. Render Card Front via Sprite Sheet Slice
-  if (useImage && cardImageSrc) {
+  if (useImage && activeFrontSrc && !imageError) {
     const sprite = CARD_SPRITE_GRID[cardType] || { col: 0, row: 0 };
     const posX = (sprite.col / 3) * 100;
     const posY = (sprite.row / 2) * 100;
@@ -75,7 +104,7 @@ export const CardThumbnail: React.FC<CardThumbnailProps> = ({
       <div
         className={`relative shrink-0 overflow-hidden border border-amber-300/80 shadow-md bg-slate-900 select-none ${sizeClasses} ${className}`}
         style={{
-          backgroundImage: `url("${cardImageSrc}")`,
+          backgroundImage: `url("${activeFrontSrc}")`,
           backgroundSize: '400% 300%',
           backgroundPosition: `${posX}% ${posY}%`,
           backgroundRepeat: 'no-repeat',

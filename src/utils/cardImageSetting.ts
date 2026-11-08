@@ -487,16 +487,67 @@ export function applyRemoteCustomImages(remoteImages: Partial<CustomImagesConfig
   }
 }
 
+export function checkImageReachable(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!url || !url.startsWith('/uploads/')) {
+      resolve(true);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
 /**
  * Fetches latest custom images from server on startup.
  * Guarantees that local custom images are protected and propagated to server.
  */
 export async function fetchRemoteCustomImages(): Promise<void> {
-  const localFront = memoryCardImage || localStorage.getItem('odoru_card_image');
-  const localBack = memoryCardBackImage || localStorage.getItem('odoru_card_back_image');
-  const localIcon = memoryAppIcon || localStorage.getItem('odoru_app_icon');
+  let localFront = memoryCardImage || localStorage.getItem('odoru_card_image');
+  let localBack = memoryCardBackImage || localStorage.getItem('odoru_card_back_image');
+  let localIcon = memoryAppIcon || localStorage.getItem('odoru_app_icon');
   const localTimeStr = localStorage.getItem('odoru_custom_images_updated_at');
   const localTime = localTimeStr ? parseInt(localTimeStr, 10) : 0;
+
+  // Validate that local upload URLs actually load; if 404, reset to default immediately
+  if (localFront && localFront.startsWith('/uploads/')) {
+    const ok = await checkImageReachable(localFront);
+    if (!ok) {
+      console.warn(`Local custom front image is unreachable (${localFront}), resetting to default`);
+      localFront = DEFAULT_CARD_IMAGE;
+      memoryCardImage = DEFAULT_CARD_IMAGE;
+      try {
+        localStorage.setItem('odoru_card_image', DEFAULT_CARD_IMAGE);
+      } catch {}
+      window.dispatchEvent(new Event('odoru_card_image_updated'));
+    }
+  }
+
+  if (localBack && localBack.startsWith('/uploads/')) {
+    const ok = await checkImageReachable(localBack);
+    if (!ok) {
+      localBack = DEFAULT_CARD_BACK_IMAGE;
+      memoryCardBackImage = DEFAULT_CARD_BACK_IMAGE;
+      try {
+        localStorage.setItem('odoru_card_back_image', DEFAULT_CARD_BACK_IMAGE);
+      } catch {}
+      window.dispatchEvent(new Event('odoru_card_image_updated'));
+    }
+  }
+
+  if (localIcon && localIcon.startsWith('/uploads/')) {
+    const ok = await checkImageReachable(localIcon);
+    if (!ok) {
+      localIcon = DEFAULT_APP_ICON;
+      memoryAppIcon = DEFAULT_APP_ICON;
+      try {
+        localStorage.setItem('odoru_app_icon', DEFAULT_APP_ICON);
+      } catch {}
+      window.dispatchEvent(new Event('odoru_card_image_updated'));
+    }
+  }
 
   const hasLocalCustom =
     (localFront && localFront !== DEFAULT_CARD_IMAGE) ||

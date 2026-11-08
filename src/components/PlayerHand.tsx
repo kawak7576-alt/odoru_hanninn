@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, ClientGameState } from '../types/game';
 import { CardView } from './CardView';
 import { CardDetailModal } from './CardDetailModal';
-import { Play, AlertCircle, HelpCircle, History, Volume2, VolumeX, MessageSquare, Sparkles, ChevronRight } from 'lucide-react';
+import { MessageSquare, ChevronRight } from 'lucide-react';
 import { sounds } from '../utils/sound';
 import { getStoredCardBackImage, DEFAULT_CARD_BACK_IMAGE } from '../utils/cardImageSetting';
 
@@ -10,11 +10,11 @@ interface PlayerHandProps {
   gameState: ClientGameState;
   myPlayerId: string;
   onPlayCard: (cardId: string) => void;
-  onOpenRules: () => void;
-  onOpenDashboard: () => void;
+  onOpenRules?: () => void;
+  onOpenDashboard?: () => void;
   onToggleLog: () => void;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
   onInspectCard?: (card: Card) => void;
 }
 
@@ -22,11 +22,7 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
   gameState,
   myPlayerId,
   onPlayCard,
-  onOpenRules,
-  onOpenDashboard,
   onToggleLog,
-  soundEnabled,
-  onToggleSound,
 }) => {
   const { myHand, currentTurnPlayerId, round, phase, activeCardAction } = gameState;
   const isMyTurn = currentTurnPlayerId === myPlayerId && phase === 'playing' && !activeCardAction;
@@ -80,67 +76,52 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
 
   const turnPlayerName = gameState.players.find((p) => p.id === currentTurnPlayerId)?.name || '他プレイヤー';
 
+  // Find the most recent card action or resolution log
+  const latestActionLog = useMemo(() => {
+    const logs = gameState.logs || [];
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const text = logs[i].text;
+      if (
+        (text.startsWith('【') || text.includes('カードにより') || text.includes('手札') || text.includes('出しました') || text.includes('告発')) &&
+        !text.includes('のターンです') &&
+        !text.includes('に突入しました') &&
+        !text.includes('が再接続しました') &&
+        !text.includes('が参加しました') &&
+        !text.includes('がロビーから退出')
+      ) {
+        return text;
+      }
+    }
+    return logs[logs.length - 1]?.text || '【捜査中】カードを出して事件の真相に迫りましょう';
+  }, [gameState.logs]);
+
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col items-center">
-      {/* 5. 自分のターンと次の操作: Stepped Instruction Ribbon */}
-      <div className={`w-full flex items-center justify-between px-3 py-2 mb-2 rounded-2xl border backdrop-blur-md shadow-lg transition-all ${
-        isMyTurn
-          ? 'bg-gradient-to-r from-amber-950/90 via-amber-900/80 to-amber-950/90 border-amber-400/80 text-amber-200'
-          : 'bg-slate-900/90 border-white/10 text-stone-300'
-      }`}>
-        <div className="flex items-center gap-2 min-w-0">
-          {isMyTurn ? (
-            <>
-              <span className="w-3 h-3 rounded-full bg-yellow-400 shrink-0 animate-ping" />
-              <div className="text-xs font-black truncate leading-tight">
-                <span className="text-yellow-300">【あなたの手番】</span>
-                <span className="text-white ml-1">出したいカードをタップして詳細を確認してください</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
-              <div className="text-xs font-medium truncate leading-tight">
-                <span className="text-emerald-300 font-bold">【{turnPlayerName}】</span>
-                <span className="text-stone-300 ml-1">が思考中...（カードをタップして効果を確認できます）</span>
-              </div>
-            </>
-          )}
+      {/* 5. 直前の行動ログ表示バー: 【プレイヤー名】○○カードにより、○○～ 💬ログ */}
+      <div className="w-full flex items-center justify-between px-3 py-1.5 sm:py-2 mb-2 rounded-2xl border border-amber-400/40 bg-slate-900/95 backdrop-blur-md shadow-lg gap-2 text-stone-200">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-amber-400 text-xs shrink-0 select-none">⚡</span>
+          <div className="text-xs font-bold leading-tight line-clamp-2 text-stone-100 flex-1">
+            {latestActionLog}
+          </div>
         </div>
 
-        {/* Quick Toolbar */}
-        <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button
-            onClick={onToggleSound}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-stone-300 hover:text-white transition"
-            title="サウンド切替"
-          >
-            {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-amber-400" /> : <VolumeX className="w-3.5 h-3.5 text-stone-500" />}
-          </button>
-          <button
-            onClick={onToggleLog}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-stone-300 hover:text-white transition flex items-center gap-1 text-[11px] font-bold"
-            title="事件ログ"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">ログ</span>
-          </button>
-          <button
-            onClick={onOpenRules}
-            className="p-1.5 rounded-xl bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 transition flex items-center gap-1 text-[11px] font-bold"
-            title="ルール説明"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">ルール</span>
-          </button>
-        </div>
+        {/* 💬 ログ ボタン */}
+        <button
+          onClick={onToggleLog}
+          className="px-2.5 py-1 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 active:scale-95 text-amber-300 hover:text-amber-200 border border-amber-400/30 transition flex items-center gap-1 text-xs font-black shrink-0 cursor-pointer shadow-sm"
+          title="事件ログ履歴を開く"
+        >
+          <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+          <span>ログ</span>
+        </button>
       </div>
 
       {/* 6. 自分の手札: Hand Cards Area with Horizontal Scroll Affordance */}
       <div className="w-full rounded-3xl bg-gradient-to-t from-slate-950 via-slate-900 to-slate-950/80 border-2 border-white/15 p-2.5 sm:p-3 shadow-2xl relative">
         {/* Hand Header info */}
         <div className="flex items-center justify-between px-2 pb-1.5 mb-1 border-b border-white/10 text-xs font-bold text-stone-300">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="w-5 sm:w-5.5 h-7 sm:h-7.5 rounded-[4px] overflow-hidden border border-amber-400/80 shadow-md shrink-0 bg-slate-900 flex items-center justify-center transition-transform hover:scale-105">
               <img
                 src={cardBackSrc}
@@ -156,9 +137,22 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
             <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black border border-amber-400/40">
               {myHand.length}枚
             </span>
+
+            {/* あなたの手番 / 【○○】が思考中 (手札枚数の右側に配置) */}
+            {isMyTurn ? (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-yellow-400/25 text-yellow-300 text-xs font-black border border-yellow-400/60 shadow-sm animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
+                <span>あなたの手番</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-800/90 text-stone-300 text-xs font-medium border border-white/10 truncate max-w-[170px] sm:max-w-[260px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <span className="truncate">【{turnPlayerName}】が思考中...</span>
+              </span>
+            )}
           </div>
 
-          <div className="text-[10px] text-stone-400 font-medium">
+          <div className="text-[10px] text-stone-400 font-medium hidden sm:block">
             {myHand.length > 2 ? 'タップして効果確認・場に出す →' : 'タップで詳細表示'}
           </div>
         </div>
