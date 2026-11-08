@@ -148,18 +148,33 @@ function getOrCreateRoom(roomId: string): InternalRoom {
 
 function syncRoomHost(room: InternalRoom) {
   const currentHost = room.players.find((p) => p.id === room.hostPlayerId);
-  // In lobby, if host is missing or disconnected, transfer crown to first connected human player
-  if (!currentHost || (room.phase === 'lobby' && !currentHost.connected)) {
-    const firstConnectedHuman = room.players.find((p) => !p.isBot && p.connected);
-    if (firstConnectedHuman) {
+  const firstConnectedHuman = room.players.find((p) => !p.isBot && p.connected);
+
+  // Rule 1: If any connected human exists, the host MUST be a connected human!
+  // A bot should NEVER be host while a human player is connected.
+  if (firstConnectedHuman) {
+    if (!currentHost || !currentHost.connected || currentHost.isBot) {
       room.hostPlayerId = firstConnectedHuman.id;
+    }
+  } else {
+    // Rule 2: No connected human currently online.
+    // If any human exists (even if temporarily disconnected), prefer human over bot so reconnect preserves host.
+    const anyHuman = room.players.find((p) => !p.isBot);
+    if (anyHuman) {
+      room.hostPlayerId = anyHuman.id;
     } else if (room.players.length > 0) {
       room.hostPlayerId = room.players[0].id;
     } else {
       room.hostPlayerId = '';
     }
   }
+
+  // Synchronize isHost field on all players in room
+  room.players.forEach((p) => {
+    p.isHost = p.id === room.hostPlayerId;
+  });
 }
+
 
 function pruneDisconnectedLobbyPlayers(room: InternalRoom) {
   if (room.phase !== 'lobby') return;
@@ -540,38 +555,80 @@ function finishGame(room: InternalRoom, victoryType: VictoryType, victoryReason:
   addLog(room, `【ゲーム終了】${victoryReason}`, 'victory');
 
   // If in match5 mode, award points based on user specification:
-  // 探偵カードで犯人を当てて勝利: 1Pt
-  // 犯人を最後に出して勝ったら: 2Pt (犯人・共犯者)
-  // いぬカードで犯人を当てて勝ったら: 3Pt
+  // 探偵的中で +1pt、当てられた犯人は -1pt。
+  // 犯人逃亡で +2pt
+  // たくらみカードを使った人は、犯人逃亡で自分も +1pt、でも犯人が特定された場合 -1pt。
+  // いぬ的中は +3pt。特定された犯人は -1pt。
   if (room.gameMode === 'match5' && room.seriesState) {
     const pointsAwarded: SeriesPointAward[] = [];
-    let pt = 0;
-    let reasonText = '';
 
-    if (victoryType === 'detective') {
-      pt = 1;
-      reasonText = '探偵カード的中 (+1Pt)';
-    } else if (victoryType === 'culprit') {
-      pt = 2;
-      reasonText = '犯人逃亡完全勝利 (+2Pt)';
-    } else if (victoryType === 'dog') {
-      pt = 3;
-      reasonText = 'いぬカード的中 (+3Pt)';
-    }
-
-    for (const w of winners) {
-      room.seriesState.scores[w.id] = (room.seriesState.scores[w.id] || 0) + pt;
+    const awardPoints = (pId: string, pName: string, ptDelta: number, reason: string, isPositive: boolean) => {
+      room.seriesState!.scores[pId] = (room.seriesState!.scores[pId] || 0) + ptDelta;
       pointsAwarded.push({
-        playerId: w.id,
-        playerName: w.name,
-        points: pt,
-        reason: reasonText,
+        playerId: pId,
+        playerName: pName,
+        points: ptDelta,
+        reason,
       });
+      const sign = ptDelta > 0 ? `+${ptDelta}` : `${ptDelta}`;
       addLog(
         room,
-        `【5ゲームマッチ得点】${w.name}が「${reasonText}」で ${pt}Pt 獲得！（累計: ${room.seriesState.scores[w.id]}Pt）`,
-        'victory'
+        `【5ゲームマッチ得点】${pName}が「${reason}」で ${sign}Pt！（累計: ${room.seriesState!.scores[pId]}Pt）`,
+        isPositive ? 'victory' : 'alert'
       );
+    };
+
+    if (victoryType === 'detective') {
+      // 探偵的中: +1pt
+      const detWinner = winners.find((w) => w.role === 'detective') || winners[0];
+      if (detWinner) {
+        awardPoints(detWinner.id, detWinner.name, 1, '探偵的中 (+1Pt)', true);
+      }
+
+      // 当てられた犯人: -1pt
+      awardPoints(culpritPlayer.id, culpritPlayer.name, -1, '特定された犯人 (-1Pt)', false);
+
+      // たくらみカードを使った人 (犯人特定連座ペナルティ): -1pt
+      for (const accompliceId of room.accomplicePlayerIds) {
+        if (accompliceId !== culpritPlayer.id) {
+          const accPlayer = room.players.find((p) => p.id === accompliceId);
+          if (accPlayer) {
+            awardPoints(accPlayer.id, accPlayer.name, -1, 'たくらみ共犯者・犯人特定ペナルティ (-1Pt)', false);
+          }
+        }
+      }
+    } else if (victoryType === 'dog') {
+      // いぬ的中: +3pt
+      const dogWinner = winners.find((w) => w.role === 'dog') || winners[0];
+      if (dogWinner) {
+        awardPoints(dogWinner.id, dogWinner.name, 3, 'いぬ的中 (+3Pt)', true);
+      }
+
+      // 特定された犯人: -1pt
+      awardPoints(culpritPlayer.id, culpritPlayer.name, -1, '特定された犯人 (-1Pt)', false);
+
+      // たくらみカードを使った人 (犯人特定連座ペナルティ): -1pt
+      for (const accompliceId of room.accomplicePlayerIds) {
+        if (accompliceId !== culpritPlayer.id) {
+          const accPlayer = room.players.find((p) => p.id === accompliceId);
+          if (accPlayer) {
+            awardPoints(accPlayer.id, accPlayer.name, -1, 'たくらみ共犯者・犯人特定ペナルティ (-1Pt)', false);
+          }
+        }
+      }
+    } else if (victoryType === 'culprit') {
+      // 犯人逃亡: +2pt
+      awardPoints(culpritPlayer.id, culpritPlayer.name, 2, '犯人逃亡完全勝利 (+2Pt)', true);
+
+      // たくらみカードを使った人: +1pt
+      for (const accompliceId of room.accomplicePlayerIds) {
+        if (accompliceId !== culpritPlayer.id) {
+          const accPlayer = room.players.find((p) => p.id === accompliceId);
+          if (accPlayer) {
+            awardPoints(accPlayer.id, accPlayer.name, 1, 'たくらみ共犯者勝利 (+1Pt)', true);
+          }
+        }
+      }
     }
 
     room.seriesState.history.push({
@@ -883,22 +940,23 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
     ],
   };
 
-  addLog(room, `${currentTurnPlayer.name}が「${card.name}」を出しました。`);
+  addLog(room, `【${currentTurnPlayer.name}】「${card.name}」を出しました`);
 
   switch (card.type) {
     case 'civilian':
+      addLog(room, `【${currentTurnPlayer.name}】一般市民カードを出しました`, 'play');
       advanceTurn(room);
       break;
 
     case 'alibi':
-      addLog(room, `アリバイが公開されました。（手札からの保護は失われました）`);
+      addLog(room, `【${currentTurnPlayer.name}】アリバイカードを出しました（手札からの保護は失われました）`, 'play');
       advanceTurn(room);
       break;
 
     case 'conspiracy':
       room.accomplicePlayerIds.add(currentTurnPlayer.id);
       currentTurnPlayer.isAccomplice = true;
-      addLog(room, `${currentTurnPlayer.name}は犯人の共犯者となりました！`, 'alert');
+      addLog(room, `【${currentTurnPlayer.name}】たくらみカードにより、犯人の共犯者となりました！`, 'alert');
       advanceTurn(room);
       break;
 
@@ -909,7 +967,7 @@ function handlePlayCard(room: InternalRoom, playerId: string, cardId: string) {
         turnPlayerId: currentTurnPlayer.id,
         actionType: 'boy',
       };
-      addLog(room, `${currentTurnPlayer.name}は少年の直感で犯人カードの行方を感知しました...`);
+      addLog(room, `【${currentTurnPlayer.name}】少年カードにより、犯人カードの行方を感知しました`, 'play');
       broadcastRoom(room);
       break;
     }
@@ -1021,12 +1079,23 @@ function handleDetectiveAccusation(room: InternalRoom, turnPlayerId: string, tar
   const targetPlayer = room.players.find((p) => p.id === targetPlayerId);
   if (!turnPlayer || !targetPlayer) return;
 
-  addLog(room, `${turnPlayer.name}が${targetPlayer.name}を犯人として告発しました！`, 'alert');
-
   const hasCulprit = targetPlayer.hand.some((c) => c.type === 'culprit');
   const hasAlibi = targetPlayer.hand.some((c) => c.type === 'alibi');
 
-  if (hasCulprit && !hasAlibi) {
+  if (hasAlibi) {
+    // 犯人カードを持っていようがいまいが、アリバイカードを持っている場合は一律「アリバイがあるようだ」と判定
+    addLog(
+      room,
+      `【${turnPlayer.name}】探偵カードにより、【${targetPlayer.name}】にはアリバイがあるようだ…（告発失敗）`,
+      'alert'
+    );
+    advanceTurn(room);
+  } else if (hasCulprit) {
+    addLog(
+      room,
+      `【${turnPlayer.name}】探偵カードにより、【${targetPlayer.name}】が正真正銘の犯人だと暴かれました！`,
+      'victory'
+    );
     finishGame(
       room,
       'detective',
@@ -1034,11 +1103,11 @@ function handleDetectiveAccusation(room: InternalRoom, turnPlayerId: string, tar
       [turnPlayer.id]
     );
   } else {
-    if (hasCulprit && hasAlibi) {
-      addLog(room, `${targetPlayer.name}「私にはアリバイがあります！」（告発失敗）`, 'system');
-    } else {
-      addLog(room, `${targetPlayer.name}は犯人ではありませんでした！（シロでした）`, 'system');
-    }
+    addLog(
+      room,
+      `【${turnPlayer.name}】探偵カードにより、【${targetPlayer.name}】は犯人ではありませんでした（シロでした）`,
+      'play'
+    );
     advanceTurn(room);
   }
 }
@@ -1105,7 +1174,7 @@ function executeTradeComplete(room: InternalRoom, toPlayerCardId: string) {
     ],
   };
 
-  addLog(room, `【取り引き】${fromPlayer.name}と${toPlayer.name}の間でカードが1枚ずつ秘密裏に交換されました。`, 'play');
+  addLog(room, `【${fromPlayer.name}】取り引きカードにより、【${toPlayer.name}】と手札を1枚交換しました`, 'play');
   advanceTurn(room);
 }
 
@@ -1122,7 +1191,7 @@ function handleWitnessAction(room: InternalRoom, turnPlayerId: string, targetPla
     cards: [...targetPlayer.hand],
   };
 
-  addLog(room, `${turnPlayer.name}が${targetPlayer.name}の手札を目撃しました！`);
+  addLog(room, `【${turnPlayer.name}】目撃者カードにより、【${targetPlayer.name}】の手札を目撃しました！`, 'play');
   broadcastRoom(room);
 }
 
@@ -1159,7 +1228,7 @@ function handleDogAction(room: InternalRoom, turnPlayerId: string, targetPlayerI
 
   addLog(
     room,
-    `いぬが${targetPlayer.name}の手札から1枚を嗅ぎ当てました！「${chosenCard.name}」！`,
+    `【${turnPlayer.name}】いぬカードにより、【${targetPlayer.name}】の手札から「${chosenCard.name}」を暴きました！`,
     isCulprit ? 'victory' : 'play'
   );
 
@@ -1259,7 +1328,8 @@ function executeSimultaneousRumor(room: InternalRoom) {
     effectName: 'うわさ',
     transfers,
   };
-  addLog(room, `【うわさ】右隣のプレイヤーの手札からカードが移動しました。`, 'alert');
+  const rumorPlayer = room.players[room.turnSeatIndex]?.name || 'プレイヤー';
+  addLog(room, `【${rumorPlayer}】うわさカードにより、全員が右隣の手札から1枚引きました`, 'alert');
   advanceTurn(room);
 }
 
@@ -1334,7 +1404,8 @@ function executeSimultaneousInfoManipulation(room: InternalRoom) {
     effectName: '情報操作',
     transfers,
   };
-  addLog(room, `【情報操作】全員が左隣のプレイヤーへカードを渡しました。`, 'alert');
+  const infoPlayer = room.players[room.turnSeatIndex]?.name || 'プレイヤー';
+  addLog(room, `【${infoPlayer}】情報操作カードにより、全員が左隣の手札へカードを1枚渡しました`, 'alert');
   advanceTurn(room);
 }
 
@@ -1594,6 +1665,21 @@ function processAndSaveCustomImage(dataOrUrl: string, prefix: string): string {
   }
 }
 
+function validateCustomImagePath(urlPath: string | undefined | null, defaultPath: string): string {
+  if (!urlPath || typeof urlPath !== 'string') return defaultPath;
+  const trimmed = urlPath.trim();
+  if (trimmed.startsWith('data:image/')) return trimmed;
+  const cleanPath = trimmed.split('?')[0];
+  if (cleanPath.startsWith('/')) {
+    const diskPath = path.join(__dirname, 'public', cleanPath.replace(/^\//, ''));
+    if (!fs.existsSync(diskPath)) {
+      console.warn(`[CustomImage] File missing on disk (${cleanPath}), resetting to: ${defaultPath}`);
+      return defaultPath;
+    }
+  }
+  return trimmed;
+}
+
 // Convert existing data URLs if any to clean files on startup
 if (serverCustomImages.appIcon && serverCustomImages.appIcon.startsWith('data:image/')) {
   serverCustomImages.appIcon = processAndSaveCustomImage(serverCustomImages.appIcon, 'app_icon');
@@ -1605,6 +1691,11 @@ if (serverCustomImages.backImage && serverCustomImages.backImage.startsWith('dat
   serverCustomImages.backImage = processAndSaveCustomImage(serverCustomImages.backImage, 'back');
 }
 
+// Verify that paths in serverCustomImages actually exist on disk, fallback if missing
+serverCustomImages.frontImage = validateCustomImagePath(serverCustomImages.frontImage, DEFAULT_CUSTOM_IMAGES.frontImage);
+serverCustomImages.backImage = validateCustomImagePath(serverCustomImages.backImage, DEFAULT_CUSTOM_IMAGES.backImage);
+serverCustomImages.appIcon = validateCustomImagePath(serverCustomImages.appIcon, DEFAULT_CUSTOM_IMAGES.appIcon);
+
 function saveCustomImages() {
   try {
     fs.writeFileSync(CUSTOM_IMAGES_FILE, JSON.stringify(serverCustomImages, null, 2), 'utf-8');
@@ -1615,6 +1706,10 @@ function saveCustomImages() {
 
 // Ensure custom uploads are immediately served with cache headers
 app.use('/uploads', express.static(UPLOADS_DIR));
+// Important: Prevent SPA fallback from returning index.html for missing /uploads requests
+app.use('/uploads', (_req, res) => {
+  res.status(404).type('text/plain').send('Not Found');
+});
 
 function broadcastCustomImages() {
   const msg = JSON.stringify({
@@ -1634,6 +1729,9 @@ function broadcastCustomImages() {
 
 app.get('/api/custom-images', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  serverCustomImages.frontImage = validateCustomImagePath(serverCustomImages.frontImage, DEFAULT_CUSTOM_IMAGES.frontImage);
+  serverCustomImages.backImage = validateCustomImagePath(serverCustomImages.backImage, DEFAULT_CUSTOM_IMAGES.backImage);
+  serverCustomImages.appIcon = validateCustomImagePath(serverCustomImages.appIcon, DEFAULT_CUSTOM_IMAGES.appIcon);
   res.json(serverCustomImages);
 });
 
@@ -1845,8 +1943,8 @@ wss.on('connection', (rawWs: WebSocket) => {
               return;
             }
 
-            const isFirst = currentRoom.players.length === 0;
-            if (isFirst || !currentRoom.hostPlayerId) {
+            const hasHuman = currentRoom.players.some((p) => !p.isBot && p.connected);
+            if (!hasHuman || !currentRoom.hostPlayerId) {
               currentRoom.hostPlayerId = assignedPlayerId;
             }
 
@@ -1870,7 +1968,22 @@ wss.on('connection', (rawWs: WebSocket) => {
             return;
           }
 
-          // If game is in progress in this room, send view state
+          // If game is in progress in this room and existingPlayer wasn't matched by assignedPlayerId:
+          // Try to recover any disconnected human slot
+          const disconnectedHuman = currentRoom.players.find((p) => !p.isBot && !p.connected);
+          if (disconnectedHuman) {
+            disconnectedHuman.id = assignedPlayerId;
+            disconnectedHuman.connected = true;
+            if (playerName && playerName.trim()) {
+              disconnectedHuman.name = playerName.trim();
+            }
+            syncRoomHost(currentRoom);
+            addLog(currentRoom, `${disconnectedHuman.name}が復帰しました。`, 'system');
+            broadcastRoom(currentRoom);
+            return;
+          }
+
+          // Otherwise send current view state to spectator
           const state = getSanitizedStateForPlayer(currentRoom, assignedPlayerId);
           ws.send(JSON.stringify({ type: 'ROOM_UPDATE', state }));
           break;
